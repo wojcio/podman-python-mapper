@@ -1,0 +1,20 @@
+MAPPING xml_to_csv {
+    SOURCE XML {
+        file: "input.xml"
+        root_element: "Order"
+    }
+    
+    TARGET CSV {
+        file: "output.csv"
+        delimiter: ","
+        has_header: true
+    }
+    
+    RULES {
+        map OrderID -> order_id AS integer
+        map CustomerID -> customer_id AS string
+        map TotalAmount -> total_amount AS decimal
+        map OrderDate -> order_date 
+            TRANSFORM format_date("YYYY-MM-DD")
+    }
+}

@@ -1,0 +1,17 @@
+MAPPING csv_to_xml_test {
+    SOURCE CSV {
+        file: "input.csv"
+        has_header: true
+    }
+    
+    TARGET XML {
+        file: "output.xml"
+        root_element: "Records"
+    }
+    
+    RULES {
+        map CustomerID -> RecordCustomerID
+        map CustomerName -> RecordCustomerName
+        map OrderDate -> RecordOrderDate
+    }
+}

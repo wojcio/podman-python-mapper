@@ -1,0 +1,24 @@
+MAPPING csv_to_xml {
+    SOURCE CSV {
+        file: "data.csv"
+        has_header: true
+    }
+    
+    TARGET XML {
+        file: "output.xml"
+        root_element: "Records"
+    }
+    
+    RULES {
+        map CustomerID -> Record/CustomerID
+        map Name -> Record/Name 
+            TRANSFORM trim()
+        map Amount -> Record/Amount 
+            TRANSFORM format_number("#,##0.00")
+        map Status -> Record/Status
+            IF Status = "P"
+                DEFAULT "Pending"
+            ELSE
+                DEFAULT "Completed"
+    }
+}

@@ -1,0 +1,20 @@
+MAPPING edi_to_db {
+    SOURCE EDI {
+        file: "input.edi"
+        version: "X12"
+        segment_delimiter: "~"
+    }
+    
+    TARGET DB {
+        type: "sqlite"
+        connection_string: "import.db"
+        table: "orders"
+        mode: "insert"
+    }
+    
+    RULES {
+        map 1000/OrderID -> order_id AS integer
+        map 2000/CustomerName -> customer_name AS string
+        map 3000/TotalAmount -> total_amount AS decimal
+    }
+}

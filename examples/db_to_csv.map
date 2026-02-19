@@ -1,0 +1,22 @@
+MAPPING db_to_csv {
+    SOURCE DB {
+        type: "sqlite"
+        connection_string: "orders.db"
+        query: "SELECT * FROM orders WHERE status = 'pending'"
+    }
+    
+    TARGET CSV {
+        file: "orders_export.csv"
+        delimiter: ","
+        has_header: true
+    }
+    
+    RULES {
+        map order_id -> id AS integer
+        map customer_name -> customer AS string
+        map total_amount -> amount 
+            TRANSFORM format_number("#,##0.00")
+        map order_date -> date
+            TRANSFORM format_date("DD/MM/YYYY")
+    }
+}
