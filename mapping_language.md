@@ -6,8 +6,9 @@ A domain-specific language (DSL) for defining mappings between different data fo
 ## Basic Concepts
 
 ### Data Sources and Targets
-- `SOURCE` - The input data format (XML, EDI, DB, CSV)
-- `TARGET` - The output data format (XML, EDI, DB, CSV)
+- `SOURCE` - The input data format (XML, EDI, DB, CSV, JSON)
+- `COMPONENT` - Optional intermediate data storage and enrichtment block (DB)
+- `TARGET` - The output data format (XML, EDI, DB, CSV, JSON)
 
 ### Data Types
 - `string` - Text data
@@ -21,9 +22,13 @@ A domain-specific language (DSL) for defining mappings between different data fo
 ### Basic Structure
 ```
 MAPPING name {
-    SOURCE type {
+    SOURCE type [AS alias] {
         # Source configuration
     }
+    
+    [COMPONENT type {
+        # Component configuration and enrichment query
+    }]
     
     TARGET type {
         # Target configuration
@@ -70,6 +75,23 @@ EDI {
     file: "input.edi"
     version: "X12" | "EDIFACT"
     segment_delimiter: "~"
+}
+```
+
+#### JSON
+```
+JSON {
+    file: "output.json"
+}
+```
+
+### Intermediate Component
+
+#### DB (In-Memory SQLite)
+```
+COMPONENT DB {
+    schema: "id INTEGER, name TEXT, ref_id INTEGER"
+    query: "SELECT main.id, main.name, ref.status FROM main LEFT JOIN ref ON main.ref_id = ref.id"
 }
 ```
 
@@ -208,6 +230,36 @@ MAPPING edi_to_db {
         map 1000/OrderID -> order_id AS integer
         map 2000/CustomerName -> customer_name AS string
         map 3000/TotalAmount -> total_amount AS decimal
+    }
+}
+```
+
+### Data Enrichment with COMPONENT
+```
+MAPPING enrich_mapping {
+    SOURCE CSV AS main {
+        file: "main_data.csv"
+        has_header: true
+    }
+    
+    SOURCE XML AS ref {
+        file: "reference.xml"
+        root_element: "Items"
+    }
+    
+    COMPONENT DB { 
+        schema: "id INTEGER, name TEXT, ref_id INTEGER"
+        query: "SELECT main.id, main.name, ref.status FROM main LEFT JOIN ref ON main.ref_id = ref.id"
+    }
+    
+    TARGET JSON {
+        file: "enriched_output.json"
+    }
+    
+    RULES {
+        map id -> target_id
+        map name -> target_name
+        map status -> target_status DEFAULT "unknown"
     }
 }
 ```
