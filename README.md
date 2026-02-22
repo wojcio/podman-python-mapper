@@ -31,6 +31,7 @@ MAPPING name {
 - **CSV** - Comma-separated values files
 - **XML** - Extensible Markup Language files  
 - **DB** - Database (SQLite supported)
+- **JSON** - JSON format
 - **EDI** - Electronic Data Interchange files
 
 ### Configuration Options
@@ -54,7 +55,7 @@ MAPPING name {
 
 ### Mapping Rules
 
-Each rule maps a source field to a target field:
+Each rule maps a source field (or a component query result) to a target field:
 
 ```
 map CustomerID -> RecordCustomerID
@@ -66,6 +67,35 @@ Optional modifiers:
 - `IF condition` - Conditional mapping
 
 ## Examples
+
+### Intermediate Data Enrichment with COMPONENT and Multiple Sources
+
+You can join data between multiple sources by defining aliases and using a `COMPONENT DB` block to execute an in-memory SQL query:
+
+```dml
+MAPPING enrich_mapping {
+    # 1. Provide multiple sources with aliases
+    SOURCE CSV AS main { file: "main_data.csv", has_header: true }
+    SOURCE XML AS ref { file: "reference.xml", root_element: "Items" }
+
+    # 2. Use a COMPONENT to hold data and apply an enrichment query
+    COMPONENT DB { 
+        schema: "id INTEGER, name TEXT, ref_id INTEGER",
+        query: "SELECT main.id, main.name, ref.status FROM main LEFT JOIN ref ON main.ref_id = ref.id"
+    }
+
+    TARGET JSON { file: "output.json" }
+
+    # 3. Rules map from the COMPONENT's query output to the TARGET
+    RULES {
+        map id -> target_id
+        map name -> target_name
+        map status -> target_status DEFAULT "unknown"
+    }
+}
+```
+
+> **Note**: For multiple sources, the generated mapper accepts arguments in pairs: `python mapper_out.py main main.csv ref reference.xml output.json`.
 
 ### CSV to XML
 
