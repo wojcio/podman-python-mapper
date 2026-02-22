@@ -238,3 +238,6 @@ podman-python-mapper/
 
 ```bash
 python3 tests/test_mapper.py
+
+
+Have fun! Licence MIT 
