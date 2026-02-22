@@ -6,7 +6,7 @@ A language and parser for describing data mappings between different formats (XM
 
 ```bash
 # Compile a mapping file to Python code
-python3 src/simple_mapper.py input.map output.py
+python3 src/mapper.py input.map output.py
 
 # Run the generated mapper
 python3 output.py input.csv output.xml
@@ -146,15 +146,14 @@ MAPPING csv_to_edi {
 ### Python API
 
 ```python
-from src.simple_mapper import compile_mapping, SimpleMapper
+from src.mapper import compile_mapping, parse_dml_file, generate_python_code
 
 # Option 1: Compile from file
 compile_mapping("input.map", "output.py")
 
 # Option 2: Parse and generate programmatically
-mapper = SimpleMapper()
-mapping = mapper.parse_mapping(dml_code)
-code = mapper.generate_code(mapping)
+mapping = parse_dml_file("input.map")
+code = generate_python_code(mapping)
 ```
 
 ## Usage
@@ -162,21 +161,20 @@ code = mapper.generate_code(mapping)
 ### From Python Code
 
 ```python
-from src.simple_mapper import compile_mapping, SimpleMapper
+from src.mapper import compile_mapping, parse_dml_file, generate_python_code
 
 # Option 1: Compile from file
 compile_mapping("input.map", "output.py")
 
 # Option 2: Parse and generate programmatically
-mapper = SimpleMapper()
-mapping = mapper.parse_mapping(dml_code)
-code = mapper.generate_code(mapping)
+mapping = parse_dml_file("input.map")
+code = generate_python_code(mapping)
 ```
 
 ### From Command Line
 
 ```bash
-python src/simple_mapper.py input.map output.py
+python src/mapper.py input.map output.py
 ```
 
 ## Generated Python Code
@@ -198,9 +196,9 @@ python generated_mapper.py input.csv output.xml
 ```
 podman-python-mapper/
 ├── src/
-│   └── simple_mapper.py    # Main mapper implementation
+│   └── mapper.py           # Main mapper implementation
 ├── tests/
-│   ├── test_simple_mapper.py  # Unit tests
+│   ├── test_mapper.py         # Unit tests
 │   └── test_csv_xml.map       # Sample mapping file
 ├── README.md               # This documentation
 └── mapping_language.md     # Full language specification
@@ -209,4 +207,4 @@ podman-python-mapper/
 ## Testing
 
 ```bash
-python3 tests/test_simple_mapper.py
+python3 tests/test_mapper.py

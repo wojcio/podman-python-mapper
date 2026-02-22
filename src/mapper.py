@@ -388,7 +388,7 @@ class CodeGenerator:
         lines.append('')
         
         # Imports
-        imports = ['import csv', 'import json']
+        imports = ['import csv', 'import json', 'from typing import Dict, List, Optional']
         source_type = self.mapping['source']['type'].upper()
         target_type = self.mapping['target']['type'].upper()
         
@@ -646,7 +646,7 @@ class CodeGenerator:
         
         # Read source
         if source_type == 'CSV':
-            has_header = str(source_config.get('has_header', 'true')).lower()
+            has_header = str(source_config.get('has_header', 'true')).capitalize()
             lines.append(f'    source_items = read_source(input_data, has_header={has_header})')
         elif source_type == 'DB':
             db_type = source_config.get('type', 'sqlite')
@@ -719,15 +719,19 @@ class CodeGenerator:
         if not rule.get('target_field'):
             return lines
         
-        # Add initialization of output_item on first rule
         source_var = f'source_item.get("{rule["source_field"]}")' if rule.get('source_field') else 'None'
         value_expr = source_var
         
+        # Apply default value if provided
+        if rule.get('default_value') is not None:
+            default_val = repr(rule['default_value'])
+            value_expr = f'{source_var} if {source_var} is not None else {default_val}'
+
         # Apply transform
         if rule.get('transform'):
             func_name = rule['transform'].split('(')[0]
             args_str = rule['transform'][len(func_name)+1:-1]  # Extract args
-            value_expr = f'transform_value({source_var}, "{func_name}", {args_str})'
+            value_expr = f'transform_value({value_expr}, "{func_name}", {args_str})'
         
         # Apply data type - map to Python built-ins
         if rule.get('data_type'):
@@ -742,21 +746,16 @@ class CodeGenerator:
                 'bool': 'bool',
             }
             python_type = type_map.get(rule['data_type'].lower(), rule['data_type'])
-            value_expr = f'{python_type}({value_expr})'
+            value_expr = f'{python_type}({value_expr}) if {value_expr} is not None else None'
         
         # Generate assignment with proper indentation
         indent_str = ' ' * indent
         target_field = rule['target_field']
         
-        # First rule initializes output_item, subsequent rules add to it
-        if not rule.get('source_field'):
-            lines.append(f'{indent_str}output_item = {{}}')
-        
-        # Get the source field for value assignment
-        if rule.get('source_field'):
-            lines.append(f'{indent_str}output_item["{target_field}"] = {value_expr}')
+        if rule.get('condition'):
+            lines.append(f'{indent_str}if {rule["condition"]}:')
+            lines.append(f'{indent_str}    output_item["{target_field}"] = {value_expr}')
         else:
-            # Handle default value case
             lines.append(f'{indent_str}output_item["{target_field}"] = {value_expr}')
         
         return lines
