@@ -55,17 +55,18 @@ class Tokenizer:
         ('GE', r'>='),
         ('LE', r'<='),
         ('EQ', r'=='),
-        ('NE', r'!='),
+        ('ASSIGN', r'='),
         ('PLUS', r'\+'),
         ('MINUS', r'-'),
         ('STAR', r'\*'),
         ('SLASH', r'/'),
         ('PERCENT', r'%'),
         ('DOT', r'\.'),
-        ('NUMBER', r'-?\d+(\.\d+)?'),
+        # IDENT before NUMBER to allow paths like "1000/OrderID" or just digits
+        ('IDENT', r'[a-zA-Z_][a-zA-Z0-9_/]*|[0-9]+[a-zA-Z0-9_/]*'),
         ('STRING', r'"[^"]*"|\'[^\']*\''),
-        ('IDENT', r'[a-zA-Z_][a-zA-Z0-9_]*'),
-        ('SLASHPATH', r'[a-zA-Z_/][a-zA-Z0-9_/.]*'),
+        ('NUMBER', r'-?\d+(\.\d+)?'),
+        ('SLASHPATH', r'[a-zA-Z0-9_/-]+/[a-zA-Z0-9_/]*'),
         ('WS', r'\s+'),
         ('COMMENT', r'#.*$'),
     ]
@@ -395,6 +396,8 @@ class CodeGenerator:
             imports.append('import xml.etree.ElementTree as ET')
         if source_type == 'DB' or target_type == 'DB':
             imports.append('import sqlite3')
+        if source_type == 'EDI' or target_type == 'EDI':
+            imports.append('import re')
         
         lines.extend(sorted(set(imports)))
         lines.append('')
@@ -418,7 +421,7 @@ class CodeGenerator:
         return [
             '',
             '# Transformation Functions',
-            'def transform_value(value, func_name: str):',
+            'def transform_value(value, func_name: str, *args):',
             '    """Apply transformation function to value."""',
             '    if value is None:',
             '        return None',
@@ -435,7 +438,44 @@ class CodeGenerator:
             '            return float(value)',
             '        elif func_name == "str":',
             '            return str(value)',
+            '        elif func_name == "format_date":',
+            '            if args:',
+            '                return format_date_func(value, args[0])',
+            '        elif func_name == "format_number":',
+            '            if args:',
+            '                return format_number_func(value, args[0])',
+            '        elif func_name == "substring":',
+            '            if args:',
+            '                start = int(args[0]) if len(args) > 0 else 0',
+            '                end = int(args[1]) if len(args) > 1 else None',
+            '                return str(value)[start:end]',
             '    except Exception:',
+            '        pass',
+            '    return value',
+            '',
+            '# Date formatter',
+            'def format_date_func(value, fmt):',
+            '    """Format date value according to format string."""',
+            '    import datetime',
+            '    if isinstance(value, str):',
+            '        for fmt_str in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"]:',
+            '            try:',
+            '                dt = datetime.datetime.strptime(value, fmt_str)',
+            '                return dt.strftime(fmt.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d"))',
+            '            except ValueError:',
+            '                continue',
+            '    return value',
+            '',
+            '# Number formatter',
+            'def format_number_func(value, fmt):',
+            '    """Format number according to format string."""',
+            '    try:',
+            '        num = float(value)',
+            '        if fmt == "#,##0.00":',
+            '            return f"{num:,.2f}"',
+            '        elif fmt == "999999.99":',
+            '            return f"{num:08.2f}"',
+            '    except (ValueError, TypeError):',
             '        pass',
             '    return value',
         ]
@@ -481,7 +521,7 @@ class CodeGenerator:
             return [
                 '',
                 '# Database Source Handler',
-                'def read_source(db_type: str, connection_string: str, query: str) -> List[Dict]:',
+                'def read_db_source(db_type: str, connection_string: str, query: str) -> List[Dict]:',
                 '    """Read data from database."""',
                 '    if db_type.lower() == "sqlite":',
                 '        conn = sqlite3.connect(connection_string)',
@@ -498,7 +538,7 @@ class CodeGenerator:
             return [
                 '',
                 '# EDI Source Handler',
-                'def read_source(file_path: str, delimiter: str = "~") -> List[Dict]:',
+                'def read_edi_source(file_path: str, delimiter: str = "~") -> List[Dict]:',
                 '    """Read data from EDI file."""',
                 '    with open(file_path, "r") as f:',
                 '        content = f.read()',
@@ -553,7 +593,7 @@ class CodeGenerator:
             return [
                 '',
                 '# Database Target Handler',
-                'def write_target(items: List[Dict], db_type: str, connection_string: str, table: str):',
+                'def write_db_target(items: List[Dict], db_type: str, connection_string: str, table: str):',
                 '    """Write data to database."""',
                 '    if db_type.lower() == "sqlite":',
                 '        conn = sqlite3.connect(connection_string)',
@@ -565,7 +605,7 @@ class CodeGenerator:
                 '        placeholders = ", ".join(["?" for _ in cols])',
                 '        for item in items:',
                 '            values = [str(item.get(c)) if item.get(c) is not None else None for c in cols]',
-                '            cursor.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders})", values)',
+                '            cursor.execute(f"INSERT INTO {table} ({", ".join(cols)}) VALUES ({placeholders})", values)',
                 '    conn.commit()',
                 '    conn.close()',
             ]
@@ -612,10 +652,12 @@ class CodeGenerator:
             db_type = source_config.get('type', 'sqlite')
             conn_str = source_config.get('connection_string', '')
             query = source_config.get('query', 'SELECT * FROM table')
-            lines.append(f'    source_items = read_db_source("{db_type}", "{conn_str}", """{query}""")')
+            # Escape the query string for Python code
+            escaped_query = query.replace('\\', '\\\\').replace('"', '\\"')
+            lines.append(f'    source_items = read_db_source("{db_type}", "{conn_str}", """{escaped_query}""")')
         elif source_type == 'EDI':
             version = source_config.get('version', 'X12')
-            lines.append(f'    source_items = read_edi_source(input_data, version="{version}")')
+            lines.append(f'    source_items = read_edi_source(input_data, delimiter="{version}")')
         else:
             root_elem = source_config.get('root_element', 'Item')
             lines.append(f'    source_items = read_source(input_data, root_element="{root_elem}")')
@@ -626,9 +668,15 @@ class CodeGenerator:
             '    output_items = []',
         ])
         
-        # Generate rules
+        lines.append('    for source_item in source_items:')
+        lines.append('        output_item = {}')
+        
+        # Generate rules - all fields go into one output item
         for rule in self.mapping['rules']:
-            lines.extend(self._generate_rule_processing(rule))
+            lines.extend(self._generate_rule_processing(rule, indent=8))
+        
+        lines.append('        output_items.append(output_item)')
+        lines.append('')
         
         # Write target
         if target_type == 'CSV':
@@ -637,10 +685,10 @@ class CodeGenerator:
             db_type = target_config.get('type', 'sqlite')
             conn_str = target_config.get('connection_string', '')
             table = target_config.get('table', 'output')
-            lines.append(f'    write_target(output_items, "{db_type}", "{conn_str}", "{table}")')
+            lines.append(f'    write_db_target(output_items, "{db_type}", "{conn_str}", "{table}")')
         elif target_type == 'EDI':
             version = target_config.get('version', 'X12')
-            lines.append(f'    write_target(output_items, output_path, version="{version}")')
+            lines.append(f'    write_target(output_items, output_path, delimiter="{version}")')
         else:
             root_elem = target_config.get('root_element', 'Root')
             lines.append(f'    write_target(output_items, output_path, root_element="{root_elem}")')
@@ -664,31 +712,52 @@ class CodeGenerator:
         
         return lines
 
-    def _generate_rule_processing(self, rule: Dict) -> List[str]:
+    def _generate_rule_processing(self, rule: Dict, indent: int = 4) -> List[str]:
         """Generate code for processing a single mapping rule."""
         lines = []
         
         if not rule.get('target_field'):
             return lines
         
+        # Add initialization of output_item on first rule
         source_var = f'source_item.get("{rule["source_field"]}")' if rule.get('source_field') else 'None'
         value_expr = source_var
         
         # Apply transform
         if rule.get('transform'):
             func_name = rule['transform'].split('(')[0]
-            value_expr = f'transform_value({source_var}, "{func_name}")'
+            args_str = rule['transform'][len(func_name)+1:-1]  # Extract args
+            value_expr = f'transform_value({source_var}, "{func_name}", {args_str})'
         
-        # Apply data type
+        # Apply data type - map to Python built-ins
         if rule.get('data_type'):
-            value_expr = f'{rule["data_type"]}({value_expr})'
+            type_map = {
+                'integer': 'int',
+                'int': 'int',
+                'string': 'str',
+                'str': 'str',
+                'decimal': 'float',  # Python uses float for decimals
+                'float': 'float',
+                'boolean': 'bool',
+                'bool': 'bool',
+            }
+            python_type = type_map.get(rule['data_type'].lower(), rule['data_type'])
+            value_expr = f'{python_type}({value_expr})'
         
-        # Generate assignment
+        # Generate assignment with proper indentation
+        indent_str = ' ' * indent
         target_field = rule['target_field']
-        lines.append(f'    for source_item in source_items:')
-        lines.append(f'        output_item = {{"{target_field}": {value_expr}}}')
-        lines.append(f'        output_items.append(output_item)')
-        lines.append('')
+        
+        # First rule initializes output_item, subsequent rules add to it
+        if not rule.get('source_field'):
+            lines.append(f'{indent_str}output_item = {{}}')
+        
+        # Get the source field for value assignment
+        if rule.get('source_field'):
+            lines.append(f'{indent_str}output_item["{target_field}"] = {value_expr}')
+        else:
+            # Handle default value case
+            lines.append(f'{indent_str}output_item["{target_field}"] = {value_expr}')
         
         return lines
 
