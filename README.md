@@ -107,6 +107,37 @@ SWITCH category {
 }
 ```
 
+### Control Flow Blocks
+...
+```
+
+### Variables and Macros
+
+#### User-defined Variables
+Define reusable values or constants:
+```dml
+VAR threshold = 100
+CONST API_URL = "https://api.example.com"
+```
+
+#### Macros
+Define reusable snippets of mapping rules:
+```dml
+MACRO standard_id(src, tgt) {
+    map src -> tgt TRANSFORM trim()
+}
+
+RULES {
+    standard_id(item_id, RecordID)
+}
+```
+
+#### File Inclusion
+Split mapping into multiple files:
+```dml
+INCLUDE "common_rules.map"
+```
+
 ### Loops and Iteration
 
 Process collections and nested data with advanced loop control:

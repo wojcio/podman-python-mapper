@@ -432,6 +432,34 @@ Ensure only unique records are processed.
 DISTINCT
 ```
 
+### Variables and Constants
+Define reusable values.
+```dml
+VAR name = value
+CONST NAME = value
+```
+
+### Macros
+Define reusable snippets of rules.
+```dml
+MACRO name(param1, param2, ...) {
+    # rules using params
+    map param1 -> param2
+}
+
+# Use macro in RULES
+RULES {
+    name(src_field, tgt_field)
+}
+```
+
+### File Inclusion
+Include content from another mapping file.
+```dml
+INCLUDE "path/to/file.map"
+IMPORT "path/to/file.map"
+```
+
 ## Comments
 ```
 # Single line comment
