@@ -162,6 +162,11 @@ map null -> target_field
 - `ifelse(condition_value, true_value, false_value)` - Inline conditional
 - `coalesce(value, val1, val2, ...)` - First non-null value
 
+#### File Operations
+- `read_file(path)` - Read content from an external file
+- `write_file(value, path)` - Write value to a file
+- `append_file(value, path)` - Append value to an existing file
+
 #### Aggregation Functions (use in AGGREGATE block)
 - `sum(field)` - Sum of field values in group
 - `count(field)` - Number of records in group

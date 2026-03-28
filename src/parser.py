@@ -717,7 +717,7 @@ class CodeGenerator:
         """Generate helper functions."""
         self.code_lines.append('def transform_value(value, func_name, *args, row_num=0, rank_val=0):')
         self.code_lines.append('    """Apply transformation function to value."""')
-        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce", "row_number", "rank"):')
+        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce", "row_number", "rank", "read_file"):')
         self.code_lines.append('        return None')
         self.code_lines.append('')
         self.code_lines.append('    try:')
@@ -750,6 +750,9 @@ class CodeGenerator:
             'coalesce': 'return value if value is not None else next((a for a in args if a is not None), None)',
             'row_number': 'return row_num',
             'rank': 'return rank_val',
+            'read_file': 'with open(args[0], "r") as f: return f.read()',
+            'write_file': 'with open(args[0], "w") as f: f.write(str(value)); return value',
+            'append_file': 'with open(args[0], "a") as f: f.write(str(value)); return value',
         }
         for func, code in transforms.items():
             self.code_lines.append(f'    if func_name == "{func}":')

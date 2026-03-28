@@ -311,6 +311,11 @@ MAPPING csv_to_edi {
 - `ifelse(true_val, false_val)` - Inline conditional based on source value
 - `coalesce(val1, val2, ...)` - First non-null value
 
+#### File Operations
+- `read_file(path)` - Read external file content
+- `write_file(path)` - Write current value to file
+- `append_file(path)` - Append current value to file
+
 ### Python API
 
 ```python
