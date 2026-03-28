@@ -66,12 +66,20 @@ class SwitchCaseBlock:
 
 
 @dataclass
+class AggregateBlock:
+    """Grouping and aggregation configuration."""
+    group_by: List[str] = field(default_factory=list)
+    rules: List[MappingRule] = field(default_factory=list)
+
+
+@dataclass
 class Mapping:
     """Complete mapping definition."""
     name: str
     sources: List[SourceConfig] = field(default_factory=list)
     target: Optional[TargetConfig] = None
     component: Optional[ComponentConfig] = None
+    aggregate: Optional[AggregateBlock] = None
     rules: List[MappingRule] = field(default_factory=list)
 
 
@@ -103,8 +111,17 @@ class Tokenizer:
         ('AS', r'[Aa][Ss]\b'),
         ('MAP', r'[Mm][Aa][Pp]\b'),
         ('LOOP', r'[Ll][Oo][Oo][Pp]'),
-        ('AGGREGATE', r'[Aa][Gg][Gg][Rr][Ee][Gg][Aa][Tt][Ee]'),
-        ('FUNCTION', r'[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn]'),
+        ('AGGREGATE', r'[Aa][Gg][Gg][Rr][Ee][Gg][Aa][Tt][Ee]\b'),
+        ('GROUP', r'[Gg][Rr][Oo][Uu][Pp]\b'),
+        ('BY', r'[Bb][Yy]\b'),
+        ('FUNCTION', r'[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn]\b'),
+        ('SUM', r'[Ss][Uu][Mm]\b'),
+        ('AVG', r'[Aa][Vv][Gg]\b'),
+        ('COUNT', r'[Cc][Oo][Uu][Nn][Tt]\b'),
+        ('MIN', r'[Mm][Ii][Nn]\b'),
+        ('MAX', r'[Mm][Aa][Xx]\b'),
+        ('RANK', r'[Rr][Aa][Nn][Kk]\b'),
+        ('ROW_NUMBER', r'[Rr][Oo][Ww]_[Nn][Uu][Mm][Bb][Ee][Rr]\b'),
         ('WHEN', r'[Ww][Hh][Ee][Nn]'),
         ('THEN', r'[Tt][Hh][Ee][Nn]'),
         ('LBRACE', r'\{'),
@@ -220,6 +237,7 @@ class Parser:
         sources = []
         target = None
         component = None
+        aggregate = None
         rules = []
         
         while self.current_token() and self.current_token()[0] != 'RBRACE':
@@ -234,6 +252,8 @@ class Parser:
             elif self.match('COMPONENT'):
                 res = self.parse_source_target()
                 component = ComponentConfig(type=res['type'], config=res['config'])
+            elif self.match('AGGREGATE'):
+                aggregate = self.parse_aggregate()
             elif self.match('RULES'):
                 rules = self.parse_rules()
             else:
@@ -246,9 +266,38 @@ class Parser:
             sources=sources if sources else [SourceConfig(type='CSV', config={})],
             target=target or TargetConfig(type='CSV', config={}),
             component=component,
+            aggregate=aggregate,
             rules=rules
         )
     
+    def parse_aggregate(self) -> AggregateBlock:
+        """Parse AGGREGATE { GROUP BY f1, f2 RULES { ... } } block."""
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        
+        group_by = []
+        rules = []
+        
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            self.skip_whitespace()
+            if self.match('GROUP'):
+                self.expect('BY')
+                while True:
+                    self.skip_whitespace()
+                    group_by.append(self.expect('IDENT')[1])
+                    self.skip_whitespace()
+                    if not self.match('COMMA'):
+                        break
+            elif self.match('RULES'):
+                rules = self.parse_rules()
+            else:
+                # Unexpected token in aggregate block
+                self.advance()
+            self.skip_whitespace()
+            
+        self.expect('RBRACE')
+        return AggregateBlock(group_by=group_by, rules=rules)
+
     def parse_source_target(self) -> Union[SourceConfig, TargetConfig, ComponentConfig]:
         """Parse SOURCE, TARGET, or COMPONENT configuration."""
         type_token = self.current_token()
@@ -438,7 +487,13 @@ class Parser:
     
     def parse_function_call(self) -> str:
         """Parse a function call."""
-        func_name = self.expect('IDENT')[1]
+        token = self.current_token()
+        if token and token[0] in ('IDENT', 'SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'RANK', 'ROW_NUMBER'):
+            func_name = token[1]
+            self.advance()
+        else:
+            func_name = self.expect('IDENT')[1]
+            
         self.skip_whitespace()
         self.expect('LPAREN')
         
@@ -647,10 +702,10 @@ class CodeGenerator:
     
     def _generate_functions(self):
         """Generate helper functions."""
-        self.code_lines.append('def transform_value(value, func_name, *args):')
+        self.code_lines.append('def transform_value(value, func_name, *args, row_num=0, rank_val=0):')
         self.code_lines.append('    """Apply transformation function to value."""')
         self.code_lines.append('    # Some functions don\'t need a value')
-        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce"):')
+        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce", "row_number", "rank"):')
         self.code_lines.append('        return None')
         self.code_lines.append('')
         self.code_lines.append('    try:')
@@ -683,6 +738,8 @@ class CodeGenerator:
             'add_months': 'return date_add_func(value, months=int(args[0])) if args else value',
             'ifelse': 'return args[0] if value else args[1] if len(args) > 1 else None',
             'coalesce': 'return value if value is not None else next((a for a in args if a is not None), None)',
+            'row_number': 'return row_num', # Special handling in main loop
+            'rank': 'return rank_val',     # Special handling in main loop
         }
         
         for func, code in transforms.items():
@@ -799,13 +856,43 @@ class CodeGenerator:
         # Apply mapping rules
         self.code_lines.append('    # Apply mapping rules')
         self.code_lines.append('    output_items = []')
-        self.code_lines.append('    for source_item in data_items:')
+        self.code_lines.append('    for i, source_item in enumerate(data_items):')
         self.code_lines.append('        target_item = {}')
+        self.code_lines.append('        row_num = i + 1')
+        self.code_lines.append('        rank_val = i + 1 # Basic rank without order by support yet')
         
         for rule in self.mapping.rules:
             self._generate_rule_code(rule, indent_level=2)
             
         self.code_lines.append('        output_items.append(target_item)')
+        
+        # Aggregation handling
+        if self.mapping.aggregate:
+            self.code_lines.append('')
+            self.code_lines.append('    # --- Aggregation ---')
+            self.code_lines.append('    grouped_data = {}')
+            group_keys = ", ".join(f'source_item.get("{k}")' for k in self.mapping.aggregate.group_by)
+            self.code_lines.append(f'    for source_item in output_items:')
+            self.code_lines.append(f'        key = ({group_keys})')
+            self.code_lines.append('        if key not in grouped_data: grouped_data[key] = []')
+            self.code_lines.append('        grouped_data[key].append(source_item)')
+            
+            self.code_lines.append('')
+            self.code_lines.append('    final_output = []')
+            self.code_lines.append('    for key, group in grouped_data.items():')
+            self.code_lines.append('        # Create summary record')
+            self.code_lines.append('        summary = {}')
+            # Copy group keys to summary
+            for i, k in enumerate(self.mapping.aggregate.group_by):
+                self.code_lines.append(f'        summary["{k}"] = key[{i}]')
+            
+            # Apply aggregation rules
+            # We need a small helper for aggregations in generated code or inline it
+            for agg_rule in self.mapping.aggregate.rules:
+                self._generate_aggregate_rule(agg_rule)
+            
+            self.code_lines.append('        final_output.append(summary)')
+            self.code_lines.append('    output_items = final_output')
         
         # Target handling
         main_target = self.mapping.target or TargetConfig(type='CSV')
@@ -907,7 +994,7 @@ class CodeGenerator:
         
         if rule.transform:
             func_name = rule.transform.split('(')[0]
-            value_expr = f'transform_value({source_var}, "{func_name}", {rule.transform[len(func_name)+1:-1]})'
+            value_expr = f'transform_value({source_var}, "{func_name}", {rule.transform[len(func_name)+1:-1]}, row_num=row_num, rank_val=rank_val)'
         
         if rule.data_type:
             value_expr = f'{rule.data_type}({value_expr})'
@@ -921,6 +1008,28 @@ class CodeGenerator:
         
         self.code_lines.append('')
     
+    def _generate_aggregate_rule(self, rule: MappingRule):
+        """Generate summary logic for aggregation."""
+        # Simple aggregation implementation
+        target = rule.target_field
+        source = rule.source_field
+        transform = rule.transform or ""
+        
+        if "sum(" in transform:
+            self.code_lines.append(f'        summary["{target}"] = sum(float(item.get("{source}", 0)) for item in group)')
+        elif "count(" in transform:
+            self.code_lines.append(f'        summary["{target}"] = len(group)')
+        elif "avg(" in transform:
+            self.code_lines.append(f'        vals = [float(item.get("{source}", 0)) for item in group]')
+            self.code_lines.append(f'        summary["{target}"] = sum(vals)/len(vals) if vals else 0')
+        elif "min(" in transform:
+            self.code_lines.append(f'        summary["{target}"] = min(float(item.get("{source}", 0)) for item in group)')
+        elif "max(" in transform:
+            self.code_lines.append(f'        summary["{target}"] = max(float(item.get("{source}", 0)) for item in group)')
+        else:
+            # Default: take first value
+            self.code_lines.append(f'        summary["{target}"] = group[0].get("{source}") if group else None')
+
     def _translate_condition(self, condition: str) -> str:
         """Translate mapping language condition to Python."""
         # Basic translation - could be expanded
