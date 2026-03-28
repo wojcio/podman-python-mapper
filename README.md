@@ -130,10 +130,6 @@ SWITCH category {
 }
 ```
 
-### Control Flow Blocks
-...
-```
-
 ### Variables and Macros
 
 #### User-defined Variables
@@ -387,19 +383,6 @@ MAPPING csv_to_edi {
 - `api_get(url, params_json)` - Fetch data from an external API
 - `env(var_name, default)` - Access environment variables
 
-### Python API
-
-```python
-from src.mapper import compile_mapping, parse_dml_file, generate_python_code
-
-# Option 1: Compile from file
-compile_mapping("input.map", "output.py")
-
-# Option 2: Parse and generate programmatically
-mapping = parse_dml_file("input.map")
-code = generate_python_code(mapping)
-```
-
 ## Usage
 
 ### From Python Code
@@ -447,6 +430,17 @@ podman-python-mapper/
 ├── README.md               # This documentation
 └── mapping_language.md     # Full language specification
 ```
+
+## Tools and Ecosystem
+
+### VS Code Extension
+A VS Code extension is available in the `/vscode` directory, providing:
+- **Syntax Highlighting**: Full support for DML keywords, types, and operators.
+- **Real-time Validation**: Automatically runs the parser on save to highlight syntax errors.
+
+To install:
+1. Copy the `vscode` folder to your local machine.
+2. Link it or open it in VS Code to side-load.
 
 ## Testing
 
