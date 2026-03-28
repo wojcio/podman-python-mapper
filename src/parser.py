@@ -4,6 +4,7 @@ Parses mapping files and generates executable Python code.
 """
 
 import re
+import os
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
 
@@ -103,6 +104,29 @@ class ValidationRule:
 
 
 @dataclass
+class VariableDefinition:
+    """A user-defined variable or constant."""
+    name: str
+    value: Any
+    is_const: bool = False
+
+
+@dataclass
+class MacroDefinition:
+    """A reusable code snippet (macro)."""
+    name: str
+    params: List[str]
+    rules: List[Any]
+
+
+@dataclass
+class MacroCall:
+    """A call to a defined macro."""
+    name: str
+    args: List[Any]
+
+
+@dataclass
 class CleanseBlock:
     """Automatic data cleansing configuration."""
     trim: bool = False
@@ -118,9 +142,11 @@ class Mapping:
     component: Optional[ComponentConfig] = None
     aggregate: Optional[AggregateBlock] = None
     cleanse: Optional[CleanseBlock] = None
+    variables: List[VariableDefinition] = field(default_factory=list)
+    macros: Dict[str, MacroDefinition] = field(default_factory=dict)
     validations: List[ValidationRule] = field(default_factory=list)
     distinct: bool = False
-    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement]] = field(default_factory=list)
+    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement, MacroCall]] = field(default_factory=list)
 
 
 class Tokenizer:
@@ -168,6 +194,11 @@ class Tokenizer:
         ('AS', r'[Aa][Ss]\b'),
         ('MAP', r'[Mm][Aa][Pp]\b'),
         ('LOOP', r'[Ll][Oo][Oo][Pp]\b'),
+        ('VAR', r'[Vv][Aa][Rr]\b'),
+        ('CONST', r'[Cc][Oo][Nn][Ss][Tt]\b'),
+        ('MACRO', r'[Mm][Aa][Cc][Rr][Oo]\b'),
+        ('INCLUDE', r'[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\b'),
+        ('IMPORT', r'[Ii][Mm][Pp][Oo][Rr][Tt]\b'),
         ('BREAK', r'[Bb][Rr][Ee][Aa][Kk]\b'),
         ('CONTINUE', r'[Cc][Oo][Nn][Tt][Ii][Nn][Uu][Ee]\b'),
         ('WHEN', r'[Ww][Hh][Ee][Nn]\b'),
@@ -186,6 +217,7 @@ class Tokenizer:
         ('GE', r'>='),
         ('LE', r'<='),
         ('EQ', r'=='),
+        ('ASSIGN', r'='),
         ('NE', r'!='),
         ('PLUS', r'\+'),
         ('MINUS', r'-'),
@@ -240,6 +272,13 @@ class Parser:
             return self.tokens[self.pos]
         return None
     
+    def peek_token(self, offset: int = 0) -> Optional[tuple]:
+        """Peek at token at offset."""
+        idx = self.pos + offset
+        if idx < len(self.tokens):
+            return self.tokens[idx]
+        return None
+    
     def advance(self) -> Optional[tuple]:
         """Advance to next token and return current."""
         token = self.current_token()
@@ -279,12 +318,16 @@ class Parser:
         component = None
         aggregate = None
         cleanse = None
+        variables = []
+        macros = {}
         validations = []
         distinct = False
         rules = []
         
         while self.current_token() and self.current_token()[0] != 'RBRACE':
             self.skip_whitespace()
+            token = self.current_token()
+            if not token: break
             
             if self.match('SOURCE'):
                 res = self.parse_source_target()
@@ -299,6 +342,14 @@ class Parser:
                 aggregate = self.parse_aggregate()
             elif self.match('CLEANSE'):
                 cleanse = self.parse_cleanse()
+            elif self.match('VAR') or self.match('CONST'):
+                is_const = token[0] == 'CONST'
+                variables.append(self.parse_variable(is_const))
+            elif self.match('MACRO'):
+                macro = self.parse_macro_definition()
+                macros[macro.name] = macro
+            elif self.match('INCLUDE') or self.match('IMPORT'):
+                self.handle_include()
             elif self.match('VALIDATE'):
                 validations.append(self.parse_validation())
             elif self.match('DISTINCT'):
@@ -317,11 +368,59 @@ class Parser:
             component=component,
             aggregate=aggregate,
             cleanse=cleanse,
+            variables=variables,
+            macros=macros,
             validations=validations,
             distinct=distinct,
             rules=rules
         )
     
+    def parse_variable(self, is_const: bool) -> VariableDefinition:
+        """Parse VAR name = value or CONST name = value."""
+        name = self.expect('IDENT')[1]
+        self.skip_whitespace()
+        # Accept '=' or ':'
+        if self.current_token() and self.current_token()[0] in ('ASSIGN', 'COLON'):
+            self.advance()
+        else:
+            self.expect('ASSIGN')
+        self.skip_whitespace()
+        value = self.parse_value()
+        return VariableDefinition(name=name, value=value, is_const=is_const)
+
+    def parse_macro_definition(self) -> MacroDefinition:
+        """Parse MACRO name(p1, p2) { rules }."""
+        name = self.expect('IDENT')[1]
+        self.skip_whitespace()
+        self.expect('LPAREN')
+        params = []
+        while self.current_token() and self.current_token()[0] != 'RPAREN':
+            params.append(self.expect('IDENT')[1])
+            self.skip_whitespace()
+            if self.match('COMMA'): pass
+        self.expect('RPAREN')
+        self.skip_whitespace()
+        rules = self.parse_rules()
+        return MacroDefinition(name=name, params=params, rules=rules)
+
+    def handle_include(self):
+        """Handle INCLUDE "file.map" by tokenizing and inserting into current token stream."""
+        file_path_token = self.parse_value()
+        # Strip quotes if string
+        file_path = str(file_path_token)
+        if file_path.startswith('"') or file_path.startswith("'"):
+            file_path = file_path[1:-1]
+            
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                content = f.read()
+            # Tokenize included file
+            included_tokens = Tokenizer(content).tokenize()
+            # Insert tokens into current stream
+            self.tokens[self.pos:self.pos] = included_tokens
+        else:
+            print(f"Warning: Included file not found: {file_path}")
+
     def parse_aggregate(self) -> AggregateBlock:
         """Parse AGGREGATE { GROUP BY f1, f2 RULES { ... } } block."""
         self.skip_whitespace()
@@ -468,7 +567,23 @@ class Parser:
         self.skip_whitespace()
         token = self.current_token()
         if not token: return None
+        
+        # Check for Macro Call: IDENT(args)
+        if token[0] == 'IDENT' and self.peek_token(1) and self.peek_token(1)[0] == 'LPAREN':
+            name = self.advance()[1]
+            self.expect('LPAREN')
+            args = []
+            while self.current_token() and self.current_token()[0] != 'RPAREN':
+                args.append(self.parse_value())
+                self.skip_whitespace()
+                if self.match('COMMA'): pass
+            self.expect('RPAREN')
+            return MacroCall(name=name, args=args)
+
         if self.match('LOOP'): return self.parse_loop_block()
+        if self.match('INCLUDE') or self.match('IMPORT'):
+            self.handle_include()
+            return self.parse_rule() # Continue parsing with new tokens
         if self.match('BREAK'): return BreakStatement()
         if self.match('CONTINUE'): return ContinueStatement()
         if self.match('IF'): return self.parse_if_else_block()
@@ -532,7 +647,7 @@ class Parser:
     def parse_function_call(self) -> str:
         """Parse a function call."""
         token = self.current_token()
-        if token and token[0] in ('IDENT', 'SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'RANK', 'ROW_NUMBER'):
+        if token and token[0] in ('IDENT', 'SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'RANK', 'ROW_NUMBER', 'TRIM'):
             func_name = token[1]
             self.advance()
         else:
@@ -853,6 +968,16 @@ class CodeGenerator:
             self.code_lines.append('    with open(input_data, "r") as f: data_items = parse_edi_data(f.read())')
         else: self.code_lines.append('    data_items = input_data')
         
+        # --- Variables ---
+        if self.mapping.variables:
+            self.code_lines.append('    # Variables')
+            for var in self.mapping.variables:
+                val = var.value
+                if isinstance(val, str) and (val.startswith('"') or val.startswith("'")):
+                    val = val[1:-1]
+                self.code_lines.append(f'    {var.name} = {repr(val)}')
+            self.code_lines.append('')
+        
         if self.mapping.cleanse:
             self.code_lines.append('    # --- Data Cleansing ---')
             self.code_lines.append('    for item in data_items:')
@@ -962,6 +1087,36 @@ class CodeGenerator:
                 self.code_lines.append(f'{indent}else:')
                 for r in rule.default_rules: self._generate_rule_code(r, indent_level + 1)
             return
+        if isinstance(rule, MacroCall):
+            if rule.name in self.mapping.macros:
+                macro = self.mapping.macros[rule.name]
+                param_map = dict(zip(macro.params, rule.args))
+                self.code_lines.append(f'{indent}# Macro: {rule.name}')
+                
+                def apply_substitution(r, p_map):
+                    if isinstance(r, MappingRule):
+                        new_r = MappingRule(
+                            source_field=p_map.get(r.source_field, r.source_field),
+                            target_field=p_map.get(r.target_field, r.target_field),
+                            transform=r.transform, # Should also scan transform string
+                            condition=r.condition,
+                            default_value=r.default_value,
+                            data_type=r.data_type
+                        )
+                        return new_r
+                    elif isinstance(r, IfElseBlock):
+                        return IfElseBlock(
+                            condition=r.condition, # Should scan condition
+                            if_rules=[apply_substitution(sub, p_map) for sub in r.if_rules],
+                            else_rules=[apply_substitution(sub, p_map) for sub in r.else_rules]
+                        )
+                    # Handle other block types recursively...
+                    return r
+
+                for sub_rule in macro.rules:
+                    substituted_rule = apply_substitution(sub_rule, param_map)
+                    self._generate_rule_code(substituted_rule, indent_level)
+            return
         if not isinstance(rule, MappingRule) or not rule.target_field: return
         if rule.source_field and (rule.source_field.startswith('"') or rule.source_field.startswith("'")):
             src_var, is_lit = rule.source_field, True
@@ -969,7 +1124,11 @@ class CodeGenerator:
         val_expr = src_var
         if rule.transform:
             f_name = rule.transform.split('(')[0]
-            val_expr = f'transform_value({src_var}, "{f_name}", {rule.transform[len(f_name)+1:-1]}, row_num=row_num, rank_val=rank_val)'
+            args_str = rule.transform[len(f_name)+1:-1]
+            if args_str:
+                val_expr = f'transform_value({src_var}, "{f_name}", {args_str}, row_num=row_num, rank_val=rank_val)'
+            else:
+                val_expr = f'transform_value({src_var}, "{f_name}", row_num=row_num, rank_val=rank_val)'
         if rule.data_type: val_expr = f'{rule.data_type}({val_expr})'
         if rule.default_value is not None:
             self.code_lines.append(f'{indent}target_item["{rule.target_field}"] = {val_expr} if {"True" if is_lit else src_var} else {repr(rule.default_value)}')
