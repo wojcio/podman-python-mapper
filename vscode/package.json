@@ -1,0 +1,38 @@
+{
+    "name": "dml-mapper-vscode",
+    "displayName": "DML Mapper Support",
+    "description": "Syntax highlighting and validation for Data Mapping Language (.map)",
+    "version": "0.1.0",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "dml",
+            "aliases": ["Data Mapping Language", "DML"],
+            "extensions": [".map"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "dml",
+            "scopeName": "source.dml",
+            "path": "./syntaxes/dml.tmLanguage.json"
+        }]
+    },
+    "main": "./extension.js",
+    "activationEvents": [
+        "onLanguage:dml"
+    ],
+    "scripts": {
+        "lint": "eslint .",
+        "pretest": "npm run lint",
+        "test": "node ./test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.75.0",
+        "eslint": "^8.33.0"
+    }
+}
