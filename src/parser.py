@@ -649,7 +649,8 @@ class CodeGenerator:
         """Generate helper functions."""
         self.code_lines.append('def transform_value(value, func_name, *args):')
         self.code_lines.append('    """Apply transformation function to value."""')
-        self.code_lines.append('    if value is None:')
+        self.code_lines.append('    # Some functions don\'t need a value')
+        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce"):')
         self.code_lines.append('        return None')
         self.code_lines.append('')
         self.code_lines.append('    try:')
@@ -665,6 +666,23 @@ class CodeGenerator:
             'format_date': 'return format_date_func(value, *args)',
             'format_number': 'return format_number_func(value, *args)',
             'substring': 'return str(value)[:int(args[0])] if args else value',
+            'concat': 'return str(value) + "".join(str(a) for a in args)',
+            'left': 'return str(value)[:int(args[0])] if args else value',
+            'right': 'return str(value)[-int(args[0]):] if args else value',
+            'len': 'return len(str(value))',
+            'split': 'return str(value).split(args[0]) if args else str(value).split()',
+            'join': 'return args[0].join(value) if args and isinstance(value, list) else "".join(value) if isinstance(value, list) else value',
+            'abs': 'return abs(float(value))',
+            'mod': 'return float(value) % float(args[0]) if args else value',
+            'pow': 'return float(value) ** float(args[0]) if args else value',
+            'sqrt': 'import math; return math.sqrt(float(value))',
+            'now': 'import datetime; return datetime.datetime.now().isoformat()',
+            'today': 'import datetime; return datetime.date.today().isoformat()',
+            'date_diff': 'return date_diff_func(value, *args)',
+            'add_days': 'return date_add_func(value, days=int(args[0])) if args else value',
+            'add_months': 'return date_add_func(value, months=int(args[0])) if args else value',
+            'ifelse': 'return args[0] if value else args[1] if len(args) > 1 else None',
+            'coalesce': 'return value if value is not None else next((a for a in args if a is not None), None)',
         }
         
         for func, code in transforms.items():
@@ -674,6 +692,38 @@ class CodeGenerator:
         self.code_lines.append('    except Exception as e:')
         self.code_lines.append('        print(f"Transform error: {{e}}")')
         self.code_lines.append('    return value')
+        self.code_lines.append('')
+        
+        # Date helper functions
+        self.code_lines.append('def _to_datetime(value):')
+        self.code_lines.append('    import datetime')
+        self.code_lines.append('    if isinstance(value, datetime.datetime): return value')
+        self.code_lines.append('    if isinstance(value, datetime.date): return datetime.datetime.combine(value, datetime.time())')
+        self.code_lines.append('    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%dT%H:%M:%S"]:')
+        self.code_lines.append('        try: return datetime.datetime.strptime(str(value), fmt)')
+        self.code_lines.append('        except ValueError: continue')
+        self.code_lines.append('    return None')
+        self.code_lines.append('')
+        
+        self.code_lines.append('def date_diff_func(v1, v2):')
+        self.code_lines.append('    d1 = _to_datetime(v1)')
+        self.code_lines.append('    d2 = _to_datetime(v2)')
+        self.code_lines.append('    if d1 and d2: return (d1 - d2).days')
+        self.code_lines.append('    return None')
+        self.code_lines.append('')
+        
+        self.code_lines.append('def date_add_func(v, days=0, months=0):')
+        self.code_lines.append('    import datetime')
+        self.code_lines.append('    d = _to_datetime(v)')
+        self.code_lines.append('    if not d: return v')
+        self.code_lines.append('    if days: d += datetime.timedelta(days=days)')
+        self.code_lines.append('    if months:')
+        self.code_lines.append('        month = d.month - 1 + months')
+        self.code_lines.append('        year = d.year + month // 12')
+        self.code_lines.append('        month = month % 12 + 1')
+        self.code_lines.append('        day = min(d.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])')
+        self.code_lines.append('        d = d.replace(year=year, month=month, day=day)')
+        self.code_lines.append('    return d.isoformat()')
         self.code_lines.append('')
         
         # Date formatter
