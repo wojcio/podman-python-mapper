@@ -154,9 +154,20 @@ map null -> target_field
 - `add_months(value, n)` - Add n months to date
 - `convert_timezone(value, from_tz, to_tz)` - Convert timezone
 
+#### Window Functions
+- `row_number()` - Sequential number of current record
+- `rank()` - Rank of current record (currently same as row_number)
+
 #### Conditional Functions
 - `ifelse(condition_value, true_value, false_value)` - Inline conditional
 - `coalesce(value, val1, val2, ...)` - First non-null value
+
+#### Aggregation Functions (use in AGGREGATE block)
+- `sum(field)` - Sum of field values in group
+- `count(field)` - Number of records in group
+- `avg(field)` - Average of field values in group
+- `min(field)` - Minimum value in group
+- `max(field)` - Maximum value in group
 
 ## Examples
 
@@ -367,6 +378,16 @@ SWITCH source_field {
     }
     DEFAULT: {
         map field3 -> target3
+    }
+}
+```
+
+### Data Aggregation
+```dml
+AGGREGATE {
+    GROUP BY field1, field2, ...
+    RULES {
+        map source_field -> target_field TRANSFORM aggregation_function(source_field)
     }
 }
 ```

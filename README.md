@@ -107,6 +107,25 @@ SWITCH category {
 }
 ```
 
+### Data Aggregation
+
+You can group records and calculate summary values:
+
+```dml
+MAPPING agg_test {
+    SOURCE CSV { file: "sales.csv" }
+    TARGET CSV { file: "summary.csv" }
+    AGGREGATE {
+        GROUP BY region, category
+        RULES {
+            map amount -> total_sales TRANSFORM sum(amount)
+            map amount -> average_sale TRANSFORM avg(amount)
+            map id -> transaction_count TRANSFORM count(id)
+        }
+    }
+}
+```
+
 ## Examples
 
 ### Intermediate Data Enrichment with COMPONENT and Multiple Sources
@@ -234,6 +253,10 @@ MAPPING csv_to_edi {
 - `format_date(format)` - Format date (e.g., "YYYY-MM-DD")
 - `date_diff(date2)` - Difference in days
 - `add_days(n)`, `add_months(n)` - Date arithmetic
+
+#### Window Functions
+- `row_number()` - Sequential number for each record
+- `rank()` - Rank of each record (currently same as row_number)
 
 #### Conditional Functions
 - `ifelse(true_val, false_val)` - Inline conditional based on source value
