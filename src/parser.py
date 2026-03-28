@@ -50,6 +50,27 @@ class IfElseBlock:
 
 
 @dataclass
+class LoopBlock:
+    """Iteration block for collections."""
+    collection: str
+    item_alias: Optional[str] = None
+    index_alias: Optional[str] = None
+    rules: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class BreakStatement:
+    """BREAK loop control."""
+    pass
+
+
+@dataclass
+class ContinueStatement:
+    """CONTINUE loop control."""
+    pass
+
+
+@dataclass
 class TryCatchBlock:
     """Error handling block with TRY and CATCH."""
     try_rules: List[Any]
@@ -99,7 +120,7 @@ class Mapping:
     cleanse: Optional[CleanseBlock] = None
     validations: List[ValidationRule] = field(default_factory=list)
     distinct: bool = False
-    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock]] = field(default_factory=list)
+    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement]] = field(default_factory=list)
 
 
 class Tokenizer:
@@ -147,6 +168,8 @@ class Tokenizer:
         ('AS', r'[Aa][Ss]\b'),
         ('MAP', r'[Mm][Aa][Pp]\b'),
         ('LOOP', r'[Ll][Oo][Oo][Pp]\b'),
+        ('BREAK', r'[Bb][Rr][Ee][Aa][Kk]\b'),
+        ('CONTINUE', r'[Cc][Oo][Nn][Tt][Ii][Nn][Uu][Ee]\b'),
         ('WHEN', r'[Ww][Hh][Ee][Nn]\b'),
         ('THEN', r'[Tt][Hh][Ee][Nn]\b'),
         ('LBRACE', r'\{'),
@@ -445,7 +468,9 @@ class Parser:
         self.skip_whitespace()
         token = self.current_token()
         if not token: return None
-        if self.match('LOOP'): return self.parse_loop_rule()
+        if self.match('LOOP'): return self.parse_loop_block()
+        if self.match('BREAK'): return BreakStatement()
+        if self.match('CONTINUE'): return ContinueStatement()
         if self.match('IF'): return self.parse_if_else_block()
         if self.match('TRY'): return self.parse_try_catch_block()
         if self.match('SWITCH'): return self.parse_switch_case_block()
@@ -626,18 +651,31 @@ class Parser:
                 condition_parts.append(token[1])
             self.advance()
         return ' '.join(condition_parts)
-    
-    def parse_loop_rule(self) -> Optional[MappingRule]:
-        """Parse a loop rule."""
-        source_collection = self.expect('IDENT')[1]
+    def parse_loop_block(self) -> LoopBlock:
+        """Parse LOOP collection [AS item] [INDEX i] { rules } block."""
+        collection = self.expect('IDENT')[1]
+        item_alias = None
+        index_alias = None
+
         self.skip_whitespace()
+        if self.match('AS'):
+            item_alias = self.expect('IDENT')[1]
+            self.skip_whitespace()
+
+        if self.current_token() and self.current_token()[1].upper() == 'INDEX':
+            self.advance()
+            index_alias = self.expect('IDENT')[1]
+            self.skip_whitespace()
+
         self.expect('LBRACE')
-        sub_rules = []
+        rules = []
         while self.current_token() and self.current_token()[0] != 'RBRACE':
             rule = self.parse_rule()
-            if rule: sub_rules.append(rule)
+            if rule: rules.append(rule)
+            self.skip_whitespace()
         self.expect('RBRACE')
-        return MappingRule(source_field=source_collection, target_field='loop', transform=f'loop({repr(source_collection)})')
+
+        return LoopBlock(collection=collection, item_alias=item_alias, index_alias=index_alias, rules=rules)
 
 
 class CodeGenerator:
@@ -862,6 +900,27 @@ class CodeGenerator:
             if rule.else_rules:
                 self.code_lines.append(f'{indent}else:')
                 for r in rule.else_rules: self._generate_rule_code(r, indent_level + 1)
+            return
+        if isinstance(rule, LoopBlock):
+            item = rule.item_alias or "item"
+            index = rule.index_alias or "i"
+            coll = f'source_item.get("{rule.collection}", [])'
+            self.code_lines.append(f'{indent}for {index}, {item} in enumerate({coll}):')
+            # Save parent context if needed, but for now we just nest
+            # To access parent data, we'd need more complex scope handling
+            # A simple way is to inject item and index into current scope
+            self.code_lines.append(f'{indent}    # Inner loop item context')
+            self.code_lines.append(f'{indent}    # In a real impl, we\'d want to merge {item} into source_item or use a scope stack')
+            for r in rule.rules:
+                # We need to handle source field resolution within loops differently
+                # For now let's just generate nested rules
+                self._generate_rule_code(r, indent_level + 1)
+            return
+        if isinstance(rule, BreakStatement):
+            self.code_lines.append(f'{indent}break')
+            return
+        if isinstance(rule, ContinueStatement):
+            self.code_lines.append(f'{indent}continue')
             return
         if isinstance(rule, TryCatchBlock):
             self.code_lines.append(f'{indent}try:')

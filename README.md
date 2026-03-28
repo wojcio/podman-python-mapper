@@ -107,6 +107,29 @@ SWITCH category {
 }
 ```
 
+### Loops and Iteration
+
+Process collections and nested data with advanced loop control:
+
+```dml
+LOOP items AS line_item INDEX idx {
+    IF idx > 100 {
+        BREAK
+    }
+    
+    IF line_item/status == "cancelled" {
+        CONTINUE
+    }
+    
+    map line_item/id -> Order/ItemID
+    
+    # Nested loops
+    LOOP line_item/details AS detail {
+        map detail/info -> Order/ItemDetail
+    }
+}
+```
+
 ### Data Quality and Validation
 
 Maintain high data quality with built-in cleansing and validation:

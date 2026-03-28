@@ -334,14 +334,22 @@ MAPPING complex_mapping {
 ## Advanced Features
 
 ### Looping for Collections
-```
-loop source_collection {
-    map item -> target_item
+Iterate over collections with optional aliases and index access.
+```dml
+LOOP collection [AS item_alias] [INDEX index_alias] {
+    # Loop body
+    IF condition {
+        BREAK
+    }
+    IF condition {
+        CONTINUE
+    }
     
-    sub_rules {
-        # Nested rules for each item
-        map id -> Item/id
-        map name -> Item/name
+    map item_alias/field -> target
+    
+    # Nested loops
+    LOOP item_alias/sub_collection {
+        ...
     }
 }
 ```
