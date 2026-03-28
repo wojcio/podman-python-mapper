@@ -125,6 +125,12 @@ map null -> target_field
 map source_field -> parent/child/target_field
 ```
 
+#### Dynamic Target Fields
+Target field names can be determined at runtime using expressions in parentheses.
+```
+map source_field -> (expression)
+```
+
 ### Functions
 
 #### String Functions
@@ -476,6 +482,18 @@ Include content from another mapping file.
 INCLUDE "path/to/file.map"
 IMPORT "path/to/file.map"
 ```
+
+### Nested Object Blocks
+Group multiple rules under a common target prefix.
+```dml
+OBJECT target_prefix {
+    map field1 -> target1
+    map field2 -> target2
+}
+```
+# Equivalent to:
+# map field1 -> target_prefix/target1
+# map field2 -> target_prefix/target2
 
 ## Comments
 ```

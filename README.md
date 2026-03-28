@@ -74,6 +74,22 @@ map id -> Record/Header/ID
 map name -> Record/Details/Name
 ```
 
+#### Nested Object Blocks
+Group multiple rules under a common target prefix:
+```dml
+OBJECT Customer/Info {
+    map cust_name -> Name
+    map cust_email -> Email
+}
+# Results in Customer/Info/Name and Customer/Info/Email
+```
+
+#### Dynamic Target Fields
+Generate field names at runtime using expressions in parentheses:
+```dml
+map price -> (category + "_price")
+```
+
 ### Control Flow Blocks
 
 You can group multiple rules under control flow constructs:
