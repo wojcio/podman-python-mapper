@@ -40,6 +40,15 @@ class MappingRule:
     condition: Optional[str] = None
     default_value: Optional[Any] = None
     data_type: Optional[str] = None
+    is_dynamic_target: bool = False
+
+
+@dataclass
+class ObjectBlock:
+    """Nested object mapping block."""
+    prefix: str
+    rules: List[Any]
+    is_dynamic_prefix: bool = False
 
 
 @dataclass
@@ -148,7 +157,7 @@ class Mapping:
     distinct: bool = False
     input_filter: Optional[str] = None
     output_filter: Optional[str] = None
-    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement, MacroCall]] = field(default_factory=list)
+    rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement, MacroCall, ObjectBlock]] = field(default_factory=list)
 
 
 class Tokenizer:
@@ -201,6 +210,7 @@ class Tokenizer:
         ('MACRO', r'[Mm][Aa][Cc][Rr][Oo]\b'),
         ('FILTER', r'[Ff][Ii][Ll][Tt][Ee][Rr]\b'),
         ('SELECT', r'[Ss][Ee][Ll][Ee][Cc][Tt]\b'),
+        ('OBJECT', r'[Oo][Bb][Jj][Ee][Cc][Tt]\b'),
         ('INCLUDE', r'[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\b'),
         ('IMPORT', r'[Ii][Mm][Pp][Oo][Rr][Tt]\b'),
         ('BREAK', r'[Bb][Rr][Ee][Aa][Kk]\b'),
@@ -568,6 +578,9 @@ class Parser:
         rules = []
         while self.current_token() and self.current_token()[0] != 'RBRACE':
             self.skip_whitespace()
+            if self.match('OBJECT'):
+                rules.append(self.parse_object_block())
+                continue
             rule = self.parse_rule()
             if rule: rules.append(rule)
             else: raise SyntaxError(f"Unexpected token in rules: {self.current_token()}")
@@ -620,8 +633,14 @@ class Parser:
         self.skip_whitespace()
         
         target_field = None
+        is_dynamic_target = False
         token = self.current_token()
-        if token and token[0] in ('STRING', 'IDENT', 'SLASHPATH'):
+        if token and token[0] == 'LPAREN':
+            self.advance()
+            target_field = self.parse_condition()
+            self.expect('RPAREN')
+            is_dynamic_target = True
+        elif token and token[0] in ('STRING', 'IDENT', 'SLASHPATH'):
             target_field = self.parse_value()
         
         transform = None
@@ -653,7 +672,8 @@ class Parser:
             transform=transform,
             condition=condition,
             default_value=default_value,
-            data_type=data_type
+            data_type=data_type,
+            is_dynamic_target=is_dynamic_target
         )
     
     def parse_function_call(self) -> str:
@@ -772,12 +792,37 @@ class Parser:
     def parse_condition(self) -> str:
         """Parse a condition expression."""
         condition_parts = []
-        while self.current_token() and self.current_token()[0] not in ('LBRACE', 'RBRACE', 'TRANSFORM', 'DEFAULT', 'AS', 'MESSAGE', 'FORMAT', 'DISTINCT', 'RULES', 'SOURCE', 'TARGET', 'COMPONENT', 'CLEANSE', 'VAR', 'CONST', 'MACRO', 'SELECT', 'FILTER'):
+        while self.current_token() and self.current_token()[0] not in ('LBRACE', 'RBRACE', 'RPAREN', 'TRANSFORM', 'DEFAULT', 'AS', 'MESSAGE', 'FORMAT', 'DISTINCT', 'RULES', 'SOURCE', 'TARGET', 'COMPONENT', 'CLEANSE', 'VAR', 'CONST', 'MACRO', 'SELECT', 'FILTER'):
             token = self.current_token()
             if token[0] not in ('WS', 'COMMENT', 'BLOCK_COMMENT'):
                 condition_parts.append(token[1])
             self.advance()
         return ' '.join(condition_parts)
+    def parse_object_block(self) -> ObjectBlock:
+        """Parse OBJECT prefix { rules } block."""
+        self.skip_whitespace()
+        token = self.current_token()
+        prefix = ""
+        is_dynamic = False
+        
+        if token and token[0] == 'LPAREN':
+            self.advance()
+            prefix = self.parse_condition()
+            self.expect('RPAREN')
+            is_dynamic = True
+        else:
+            prefix = self.parse_value()
+            
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        rules = []
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            rule = self.parse_rule()
+            if rule: rules.append(rule)
+            self.skip_whitespace()
+        self.expect('RBRACE')
+        return ObjectBlock(prefix=prefix, rules=rules, is_dynamic_prefix=is_dynamic)
+
     def parse_loop_block(self) -> LoopBlock:
         """Parse LOOP collection [AS item] [INDEX i] { rules } block."""
         collection = self.expect('IDENT')[1]
@@ -1106,6 +1151,42 @@ class CodeGenerator:
         if isinstance(rule, ContinueStatement):
             self.code_lines.append(f'{indent}continue')
             return
+        if isinstance(rule, ObjectBlock):
+            self.code_lines.append(f'{indent}# Object Block: {rule.prefix}')
+            
+            # We need to apply the prefix to all rules inside
+            def apply_prefix(r, prefix, is_dyn):
+                if isinstance(r, MappingRule):
+                    # Combine prefix
+                    if is_dyn:
+                        new_target = f'({{prefix}}) + "/" + {r.target_field}' # Complex
+                        # Simplified dynamic prefix: just use eval at runtime if needed
+                        # For now let's just combine if string
+                        new_target = f"{prefix}/{r.target_field}"
+                    else:
+                        new_target = f"{prefix}/{r.target_field}"
+                    
+                    return MappingRule(
+                        source_field=r.source_field,
+                        target_field=new_target,
+                        transform=r.transform,
+                        condition=r.condition,
+                        default_value=r.default_value,
+                        data_type=r.data_type,
+                        is_dynamic_target=r.is_dynamic_target
+                    )
+                elif isinstance(r, IfElseBlock):
+                    return IfElseBlock(
+                        condition=r.condition,
+                        if_rules=[apply_prefix(sub, prefix, is_dyn) for sub in r.if_rules],
+                        else_rules=[apply_prefix(sub, prefix, is_dyn) for sub in r.else_rules]
+                    )
+                return r
+
+            for sub_rule in rule.rules:
+                prefixed_rule = apply_prefix(sub_rule, rule.prefix, rule.is_dynamic_prefix)
+                self._generate_rule_code(prefixed_rule, indent_level)
+            return
         if isinstance(rule, TryCatchBlock):
             self.code_lines.append(f'{indent}try:')
             for r in rule.try_rules: self._generate_rule_code(r, indent_level + 1)
@@ -1164,10 +1245,16 @@ class CodeGenerator:
             else:
                 val_expr = f'transform_value({src_var}, "{f_name}", row_num=row_num, rank_val=rank_val)'
         if rule.data_type: val_expr = f'{rule.data_type}({val_expr})'
+        target_expr = f'"{rule.target_field}"'
+        if getattr(rule, 'is_dynamic_target', False):
+            # Resolve dynamic field name at runtime
+            self.code_lines.append(f'{indent}target_field_name = str(eval({repr(rule.target_field)}, {{}}, source_item))')
+            target_expr = 'target_field_name'
+            
         if rule.default_value is not None:
-            self.code_lines.append(f'{indent}set_nested_value(target_item, "{rule.target_field}", {val_expr} if {"True" if is_lit else src_var} else {repr(rule.default_value)})')
+            self.code_lines.append(f'{indent}set_nested_value(target_item, {target_expr}, {val_expr} if {"True" if is_lit else src_var} else {repr(rule.default_value)})')
         else:
-            self.code_lines.append(f'{indent}set_nested_value(target_item, "{rule.target_field}", {val_expr})')
+            self.code_lines.append(f'{indent}set_nested_value(target_item, {target_expr}, {val_expr})')
 
     def _generate_aggregate_rule(self, rule: MappingRule):
         t, s, f = rule.target_field, rule.source_field, rule.transform or ""
