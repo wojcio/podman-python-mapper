@@ -146,6 +146,8 @@ class Mapping:
     macros: Dict[str, MacroDefinition] = field(default_factory=dict)
     validations: List[ValidationRule] = field(default_factory=list)
     distinct: bool = False
+    input_filter: Optional[str] = None
+    output_filter: Optional[str] = None
     rules: List[Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, LoopBlock, BreakStatement, ContinueStatement, MacroCall]] = field(default_factory=list)
 
 
@@ -197,6 +199,8 @@ class Tokenizer:
         ('VAR', r'[Vv][Aa][Rr]\b'),
         ('CONST', r'[Cc][Oo][Nn][Ss][Tt]\b'),
         ('MACRO', r'[Mm][Aa][Cc][Rr][Oo]\b'),
+        ('FILTER', r'[Ff][Ii][Ll][Tt][Ee][Rr]\b'),
+        ('SELECT', r'[Ss][Ee][Ll][Ee][Cc][Tt]\b'),
         ('INCLUDE', r'[Ii][Nn][Cc][Ll][Uu][Dd][Ee]\b'),
         ('IMPORT', r'[Ii][Mm][Pp][Oo][Rr][Tt]\b'),
         ('BREAK', r'[Bb][Rr][Ee][Aa][Kk]\b'),
@@ -322,6 +326,8 @@ class Parser:
         macros = {}
         validations = []
         distinct = False
+        input_filter = None
+        output_filter = None
         rules = []
         
         while self.current_token() and self.current_token()[0] != 'RBRACE':
@@ -348,6 +354,10 @@ class Parser:
             elif self.match('MACRO'):
                 macro = self.parse_macro_definition()
                 macros[macro.name] = macro
+            elif self.match('SELECT'):
+                input_filter = self.parse_condition()
+            elif self.match('FILTER'):
+                output_filter = self.parse_condition()
             elif self.match('INCLUDE') or self.match('IMPORT'):
                 self.handle_include()
             elif self.match('VALIDATE'):
@@ -372,6 +382,8 @@ class Parser:
             macros=macros,
             validations=validations,
             distinct=distinct,
+            input_filter=input_filter,
+            output_filter=output_filter,
             rules=rules
         )
     
@@ -479,7 +491,7 @@ class Parser:
         cond = None
         msg = None
         
-        while self.current_token() and self.current_token()[0] not in ('RBRACE', 'SOURCE', 'TARGET', 'RULES', 'VALIDATE', 'CLEANSE', 'AGGREGATE', 'MAP', 'IF', 'TRY', 'SWITCH', 'DISTINCT'):
+        while self.current_token() and self.current_token()[0] not in ('RBRACE', 'SOURCE', 'TARGET', 'RULES', 'VALIDATE', 'CLEANSE', 'AGGREGATE', 'MAP', 'IF', 'TRY', 'SWITCH', 'DISTINCT', 'VAR', 'CONST', 'MACRO', 'SELECT', 'FILTER'):
             self.skip_whitespace()
             if self.match('FORMAT'):
                 fmt = self.parse_value()
@@ -760,7 +772,7 @@ class Parser:
     def parse_condition(self) -> str:
         """Parse a condition expression."""
         condition_parts = []
-        while self.current_token() and self.current_token()[0] not in ('LBRACE', 'RBRACE', 'TRANSFORM', 'DEFAULT', 'AS', 'MESSAGE', 'FORMAT', 'DISTINCT'):
+        while self.current_token() and self.current_token()[0] not in ('LBRACE', 'RBRACE', 'TRANSFORM', 'DEFAULT', 'AS', 'MESSAGE', 'FORMAT', 'DISTINCT', 'RULES', 'SOURCE', 'TARGET', 'COMPONENT', 'CLEANSE', 'VAR', 'CONST', 'MACRO', 'SELECT', 'FILTER'):
             token = self.current_token()
             if token[0] not in ('WS', 'COMMENT', 'BLOCK_COMMENT'):
                 condition_parts.append(token[1])
@@ -944,6 +956,15 @@ class CodeGenerator:
         self.code_lines.append('            elif isinstance(data, dict): return data.get(str(key))')
         self.code_lines.append('    return None')
         self.code_lines.append('')
+        self.code_lines.append('def set_nested_value(d, path, value):')
+        self.code_lines.append('    """Set value in nested dictionary using slash-separated path."""')
+        self.code_lines.append('    parts = path.split("/")')
+        self.code_lines.append('    curr = d')
+        self.code_lines.append('    for part in parts[:-1]:')
+        self.code_lines.append('        if part not in curr: curr[part] = {}')
+        self.code_lines.append('        curr = curr[part]')
+        self.code_lines.append('    curr[parts[-1]] = value')
+        self.code_lines.append('')
     
     def _generate_main(self):
         """Generate main mapping function."""
@@ -1013,11 +1034,24 @@ class CodeGenerator:
             self.code_lines.append('        if t not in seen: seen.add(t); unique_items.append(item)')
             self.code_lines.append('    data_items = unique_items')
 
+        if self.mapping.input_filter:
+            self.code_lines.append('    # --- Input Selection ---')
+            cond = self._translate_condition(self.mapping.input_filter)
+            self.code_lines.append(f'    data_items = [item for item in data_items if eval({repr(cond)}, {{}}, item)]')
+            self.code_lines.append('')
+
         self.code_lines.append('    output_items = []')
         self.code_lines.append('    for i, source_item in enumerate(data_items):')
         self.code_lines.append('        target_item, row_num, rank_val = {}, i + 1, i + 1')
         for rule in self.mapping.rules: self._generate_rule_code(rule, indent_level=2)
         self.code_lines.append('        output_items.append(target_item)')
+        
+        if self.mapping.output_filter:
+            self.code_lines.append('')
+            self.code_lines.append('    # --- Output Filtering ---')
+            cond = self._translate_condition(self.mapping.output_filter)
+            self.code_lines.append(f'    output_items = [item for item in output_items if eval({repr(cond)}, {{}}, item)]')
+            self.code_lines.append('')
         
         if self.mapping.aggregate:
             self.code_lines.append('    grouped_data = {}')
@@ -1029,7 +1063,7 @@ class CodeGenerator:
             self.code_lines.append('    final_output = []')
             self.code_lines.append('    for key, group in grouped_data.items():')
             self.code_lines.append('        summary = {}')
-            for i, k in enumerate(self.mapping.aggregate.group_by): self.code_lines.append(f'        summary["{k}"] = key[{i}]')
+            for i, k in enumerate(self.mapping.aggregate.group_by): self.code_lines.append(f'        set_nested_value(summary, "{k}", key[{i}])')
             for agg_rule in self.mapping.aggregate.rules: self._generate_aggregate_rule(agg_rule)
             self.code_lines.append('        final_output.append(summary)')
             self.code_lines.append('    output_items = final_output')
@@ -1131,19 +1165,20 @@ class CodeGenerator:
                 val_expr = f'transform_value({src_var}, "{f_name}", row_num=row_num, rank_val=rank_val)'
         if rule.data_type: val_expr = f'{rule.data_type}({val_expr})'
         if rule.default_value is not None:
-            self.code_lines.append(f'{indent}target_item["{rule.target_field}"] = {val_expr} if {"True" if is_lit else src_var} else {repr(rule.default_value)}')
-        else: self.code_lines.append(f'{indent}target_item["{rule.target_field}"] = {val_expr}')
+            self.code_lines.append(f'{indent}set_nested_value(target_item, "{rule.target_field}", {val_expr} if {"True" if is_lit else src_var} else {repr(rule.default_value)})')
+        else:
+            self.code_lines.append(f'{indent}set_nested_value(target_item, "{rule.target_field}", {val_expr})')
 
     def _generate_aggregate_rule(self, rule: MappingRule):
         t, s, f = rule.target_field, rule.source_field, rule.transform or ""
-        if "sum(" in f: self.code_lines.append(f'        summary["{t}"] = sum(float(item.get("{s}", 0)) for item in group)')
-        elif "count(" in f: self.code_lines.append(f'        summary["{t}"] = len(group)')
+        if "sum(" in f: self.code_lines.append(f'        set_nested_value(summary, "{t}", sum(float(item.get("{s}", 0)) for item in group))')
+        elif "count(" in f: self.code_lines.append(f'        set_nested_value(summary, "{t}", len(group))')
         elif "avg(" in f:
             self.code_lines.append(f'        v = [float(item.get("{s}", 0)) for item in group]')
-            self.code_lines.append(f'        summary["{t}"] = sum(v)/len(v) if v else 0')
-        elif "min(" in f: self.code_lines.append(f'        summary["{t}"] = min(float(item.get("{s}", 0)) for item in group)')
-        elif "max(" in f: self.code_lines.append(f'        summary["{t}"] = max(float(item.get("{s}", 0)) for item in group)')
-        else: self.code_lines.append(f'        summary["{t}"] = group[0].get("{s}") if group else None')
+            self.code_lines.append(f'        set_nested_value(summary, "{t}", sum(v)/len(v) if v else 0)')
+        elif "min(" in f: self.code_lines.append(f'        set_nested_value(summary, "{t}", min(float(item.get("{s}", 0)) for item in group))')
+        elif "max(" in f: self.code_lines.append(f'        set_nested_value(summary, "{t}", max(float(item.get("{s}", 0)) for item in group))')
+        else: self.code_lines.append(f'        set_nested_value(summary, "{t}", group[0].get("{s}") if group else None)')
 
     def _translate_condition(self, c: str) -> str:
         return c.replace('AND', 'and').replace('OR', 'or').replace('NOT', 'not')
