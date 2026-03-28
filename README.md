@@ -208,11 +208,36 @@ MAPPING csv_to_edi {
 
 ### Transform Functions
 
+#### String Functions
 - `upper()` - Convert to uppercase
 - `lower()` - Convert to lowercase  
 - `trim()` - Remove whitespace
+- `concat(str1, str2, ...)` - Concatenate strings
+- `left(length)`, `right(length)` - Extract from edges
+- `len()` - Get string length
+- `substring(start, length)` - Extract part of string
+- `split(delimiter)` - Split string into list
+- `join(delimiter)` - Join list into string
+
+#### Numeric Functions
 - `int()` - Convert to integer
 - `float()` - Convert to float
+- `abs()` - Absolute value
+- `mod(divisor)` - Modulo operation
+- `pow(exponent)` - Power operation
+- `sqrt()` - Square root
+- `format_number(format)` - Format number (e.g., "#,##0.00")
+
+#### Date Functions
+- `now()` - Current timestamp
+- `today()` - Current date
+- `format_date(format)` - Format date (e.g., "YYYY-MM-DD")
+- `date_diff(date2)` - Difference in days
+- `add_days(n)`, `add_months(n)` - Date arithmetic
+
+#### Conditional Functions
+- `ifelse(true_val, false_val)` - Inline conditional based on source value
+- `coalesce(val1, val2, ...)` - First non-null value
 
 ### Python API
 

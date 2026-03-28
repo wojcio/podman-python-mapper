@@ -125,20 +125,38 @@ map null -> target_field
 #### String Functions
 - `upper(value)` - Convert to uppercase
 - `lower(value)` - Convert to lowercase
-- `substring(value, start, length)` - Extract substring
 - `trim(value)` - Remove whitespace
+- `concat(value, str1, ...)` - Concatenate strings
+- `left(value, length)` - Extract from the left
+- `right(value, length)` - Extract from the right
+- `len(value)` - Get length of the string
+- `substring(value, start, length)` - Extract substring
+- `split(value, delimiter)` - Split string into list
+- `join(list, delimiter)` - Join list into string
 - `replace(value, old, new)` - Replace text
 
 #### Numeric Functions
-- `format_number(value, format)` - Format number
+- `int(value)` - Convert to integer
+- `float(value)` - Convert to float
+- `abs(value)` - Absolute value
+- `mod(value, divisor)` - Modulo operation
+- `pow(value, exponent)` - Power operation
+- `sqrt(value)` - Square root
+- `format_number(value, format)` - Format number (e.g., "#,##0.00")
 - `round(value, decimals)` - Round decimal
 
 #### Date Functions
-- `format_date(value, format)` - Format date
+- `now()` - Current timestamp (ISO format)
+- `today()` - Current date (ISO format)
+- `format_date(value, format)` - Format date (e.g., "YYYY-MM-DD")
+- `date_diff(value, date2)` - Difference in days
+- `add_days(value, n)` - Add n days to date
+- `add_months(value, n)` - Add n months to date
 - `convert_timezone(value, from_tz, to_tz)` - Convert timezone
 
 #### Conditional Functions
-- `ifelse(condition, true_value, false_value)` - If-then-else
+- `ifelse(condition_value, true_value, false_value)` - Inline conditional
+- `coalesce(value, val1, val2, ...)` - First non-null value
 
 ## Examples
 
