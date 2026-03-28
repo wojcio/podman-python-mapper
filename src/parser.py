@@ -42,6 +42,30 @@ class MappingRule:
 
 
 @dataclass
+class IfElseBlock:
+    """Conditional block with IF and optional ELSE."""
+    condition: str
+    if_rules: List[Any]
+    else_rules: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class TryCatchBlock:
+    """Error handling block with TRY and CATCH."""
+    try_rules: List[Any]
+    catch_rules: List[Any]
+    error_var: Optional[str] = None
+
+
+@dataclass
+class SwitchCaseBlock:
+    """Multi-condition dispatch block with SWITCH and CASE."""
+    expression: str
+    cases: Dict[str, List[Any]]
+    default_rules: List[Any] = field(default_factory=list)
+
+
+@dataclass
 class Mapping:
     """Complete mapping definition."""
     name: str
@@ -68,8 +92,12 @@ class Tokenizer:
         ('EDI', r'[Ee][Dd][Ii]\b'),
         ('JSON', r'[Jj][Ss][Oo][Nn]\b'),
         ('COMPONENT', r'[Cc][Oo][Mm][Pp][Oo][Nn][Ee][Nn][Tt]\b'),
-        ('IF', r'[Ii][Ff]'),
-        ('ELSE', r'[Ee][Ll][Ss][Ee]'),
+        ('TRY', r'[Tt][Rr][Yy]\b'),
+        ('CATCH', r'[Cc][Aa][Tt][Cc][Hh]\b'),
+        ('SWITCH', r'[Ss][Ww][Ii][Tt][Cc][Hh]\b'),
+        ('CASE', r'[Cc][Aa][Ss][Ee]\b'),
+        ('IF', r'[Ii][Ff]\b'),
+        ('ELSE', r'[Ee][Ll][Ss][Ee]\b'),
         ('TRANSFORM', r'[Tt][Rr][Aa][Nn][Ss][Ff][Oo][Rr][Mm]'),
         ('DEFAULT', r'[Dd][Ee][Ff][Aa][Uu][Ll][Tt]'),
         ('AS', r'[Aa][Ss]\b'),
@@ -257,6 +285,8 @@ class Parser:
             self.expect('COLON')
             self.skip_whitespace()
             value = self.parse_value()
+            if isinstance(value, str) and (value.startswith('"') or value.startswith("'")):
+                value = value[1:-1]
             config[key] = value
             self.skip_whitespace()
             
@@ -282,8 +312,8 @@ class Parser:
             
         if token[0] == 'STRING':
             self.advance()
-            # Remove quotes
-            return token[1][1:-1]
+            # Keep quotes so CodeGenerator knows it is a literal
+            return token[1]
         elif token[0] == 'NUMBER':
             self.advance()
             if '.' in token[1]:
@@ -316,10 +346,24 @@ class Parser:
         self.expect('RBRACE')
         return rules
     
-    def parse_rule(self) -> Optional[MappingRule]:
-        """Parse a single mapping rule."""
+    def parse_rule(self) -> Union[MappingRule, IfElseBlock, TryCatchBlock, SwitchCaseBlock, Optional[Any]]:
+        """Parse a single mapping rule or control flow block."""
+        self.skip_whitespace()
+        token = self.current_token()
+        if not token:
+            return None
+            
         if self.match('LOOP'):
             return self.parse_loop_rule()
+            
+        if self.match('IF'):
+            return self.parse_if_else_block()
+            
+        if self.match('TRY'):
+            return self.parse_try_catch_block()
+            
+        if self.match('SWITCH'):
+            return self.parse_switch_case_block()
         
         if not self.match('MAP'):
             return None
@@ -412,14 +456,123 @@ class Parser:
         
         return f"{func_name}({', '.join(repr(a) for a in args)})"
     
+    def parse_if_else_block(self) -> IfElseBlock:
+        """Parse IF condition { rules } [ELSE { rules }] block."""
+        condition = self.parse_condition()
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        
+        if_rules = []
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            self.skip_whitespace()
+            rule = self.parse_rule()
+            if rule: if_rules.append(rule)
+            self.skip_whitespace()
+        self.expect('RBRACE')
+        
+        else_rules = []
+        self.skip_whitespace()
+        if self.match('ELSE'):
+            self.skip_whitespace()
+            if self.match('LBRACE'):
+                while self.current_token() and self.current_token()[0] != 'RBRACE':
+                    self.skip_whitespace()
+                    rule = self.parse_rule()
+                    if rule: else_rules.append(rule)
+                    self.skip_whitespace()
+                self.expect('RBRACE')
+            else:
+                rule = self.parse_rule()
+                if rule: else_rules.append(rule)
+        
+        return IfElseBlock(condition=condition, if_rules=if_rules, else_rules=else_rules)
+
+    def parse_try_catch_block(self) -> TryCatchBlock:
+        """Parse TRY { rules } CATCH [AS error] { rules } block."""
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        try_rules = []
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            self.skip_whitespace()
+            rule = self.parse_rule()
+            if rule: try_rules.append(rule)
+            self.skip_whitespace()
+        self.expect('RBRACE')
+        
+        self.skip_whitespace()
+        self.expect('CATCH')
+        
+        error_var = None
+        if self.match('AS'):
+            error_var = self.expect('IDENT')[1]
+            
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        catch_rules = []
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            self.skip_whitespace()
+            rule = self.parse_rule()
+            if rule: catch_rules.append(rule)
+            self.skip_whitespace()
+        self.expect('RBRACE')
+        
+        return TryCatchBlock(try_rules=try_rules, catch_rules=catch_rules, error_var=error_var)
+
+    def parse_switch_case_block(self) -> SwitchCaseBlock:
+        """Parse SWITCH expression { CASE value: { rules } DEFAULT: { rules } } block."""
+        self.skip_whitespace()
+        expr_token = self.advance()
+        expression = expr_token[1] if expr_token else ""
+        
+        self.skip_whitespace()
+        self.expect('LBRACE')
+        
+        cases = {}
+        default_rules = []
+        
+        while self.current_token() and self.current_token()[0] != 'RBRACE':
+            self.skip_whitespace()
+            if self.match('CASE'):
+                val = self.parse_value()
+                # If it's a quoted string, use the value inside
+                if isinstance(val, str) and (val.startswith('"') or val.startswith("'")):
+                    val = val[1:-1]
+                self.expect('COLON')
+                self.skip_whitespace()
+                self.expect('LBRACE')
+                rules = []
+                while self.current_token() and self.current_token()[0] != 'RBRACE':
+                    self.skip_whitespace()
+                    rule = self.parse_rule()
+                    if rule: rules.append(rule)
+                    self.skip_whitespace()
+                self.expect('RBRACE')
+                cases[str(val)] = rules
+            elif self.match('DEFAULT'):
+                self.expect('COLON')
+                self.skip_whitespace()
+                self.expect('LBRACE')
+                while self.current_token() and self.current_token()[0] != 'RBRACE':
+                    self.skip_whitespace()
+                    rule = self.parse_rule()
+                    if rule: default_rules.append(rule)
+                    self.skip_whitespace()
+                self.expect('RBRACE')
+            else:
+                raise SyntaxError(f"Expected CASE or DEFAULT in SWITCH block, got {self.current_token()}")
+            self.skip_whitespace()
+            
+        self.expect('RBRACE')
+        return SwitchCaseBlock(expression=expression, cases=cases, default_rules=default_rules)
+
     def parse_condition(self) -> str:
         """Parse a condition expression."""
-        # Simple approach: collect tokens until we hit a newline or end
+        # Simple approach: collect tokens until we hit LBRACE or other delimiters
         condition_parts = []
         
-        while self.current_token() and self.current_token()[0] not in ('RBRACE', 'TRANSFORM', 'DEFAULT', 'AS'):
+        while self.current_token() and self.current_token()[0] not in ('LBRACE', 'RBRACE', 'TRANSFORM', 'DEFAULT', 'AS'):
             token = self.current_token()
-            if token[0] not in ('WS', 'COMMENT'):
+            if token[0] not in ('WS', 'COMMENT', 'BLOCK_COMMENT'):
                 condition_parts.append(token[1])
             self.advance()
         
@@ -596,9 +749,13 @@ class CodeGenerator:
         # Apply mapping rules
         self.code_lines.append('    # Apply mapping rules')
         self.code_lines.append('    output_items = []')
+        self.code_lines.append('    for source_item in data_items:')
+        self.code_lines.append('        target_item = {}')
         
         for rule in self.mapping.rules:
-            self._generate_rule_code(rule)
+            self._generate_rule_code(rule, indent_level=2)
+            
+        self.code_lines.append('        output_items.append(target_item)')
         
         # Target handling
         main_target = self.mapping.target or TargetConfig(type='CSV')
@@ -624,23 +781,76 @@ class CodeGenerator:
         self.code_lines.append('    return output_items')
         self.code_lines.append('')
     
-    def _generate_rule_code(self, rule: MappingRule):
-        """Generate code for a single mapping rule."""
-        if not rule.target_field:
+    def _generate_rule_code(self, rule: Any, indent_level: int = 2):
+        """Generate code for a single mapping rule or control flow block."""
+        indent = "    " * indent_level
+        
+        if isinstance(rule, IfElseBlock):
+            self.code_lines.append(f'{indent}# IF Block')
+            self.code_lines.append(f'{indent}if {self._translate_condition(rule.condition)}:')
+            for sub_rule in rule.if_rules:
+                self._generate_rule_code(sub_rule, indent_level + 1)
+            
+            if rule.else_rules:
+                self.code_lines.append(f'{indent}else:')
+                for sub_rule in rule.else_rules:
+                    self._generate_rule_code(sub_rule, indent_level + 1)
+            return
+
+        if isinstance(rule, TryCatchBlock):
+            self.code_lines.append(f'{indent}# TRY Block')
+            self.code_lines.append(f'{indent}try:')
+            for sub_rule in rule.try_rules:
+                self._generate_rule_code(sub_rule, indent_level + 1)
+            
+            err_var = rule.error_var or "e"
+            self.code_lines.append(f'{indent}except Exception as {err_var}:')
+            for sub_rule in rule.catch_rules:
+                self._generate_rule_code(sub_rule, indent_level + 1)
+            return
+
+        if isinstance(rule, SwitchCaseBlock):
+            self.code_lines.append(f'{indent}# SWITCH Block')
+            expr = f'source_item.get("{rule.expression}")'
+            self.code_lines.append(f'{indent}switch_val = {expr}')
+            
+            first = True
+            for val, sub_rules in rule.cases.items():
+                prefix = "if" if first else "elif"
+                self.code_lines.append(f'{indent}{prefix} switch_val == {repr(val)}:')
+                for sub_rule in sub_rules:
+                    self._generate_rule_code(sub_rule, indent_level + 1)
+                first = False
+            
+            if rule.default_rules:
+                self.code_lines.append(f'{indent}else:')
+                for sub_rule in rule.default_rules:
+                    self._generate_rule_code(sub_rule, indent_level + 1)
+            return
+
+        if not isinstance(rule, MappingRule) or not rule.target_field:
             return
         
         # Check if this is a loop rule
         if 'loop(' in str(rule.transform):
-            self.code_lines.append(f'    # Loop through {rule.source_field}')
+            self.code_lines.append(f'{indent}# Loop through {rule.source_field}')
             return
         
-        source_var = f'source_item.get("{rule.source_field}")'
+        # Check if source_field is a literal or a field name
+        if rule.source_field and (rule.source_field.startswith('"') or rule.source_field.startswith("'")):
+            source_var = rule.source_field
+            is_literal = True
+        else:
+            source_var = f'source_item.get("{rule.source_field}")'
+            is_literal = False
         
         # Build target assignment
-        self.code_lines.append(f'    # Rule: {rule.source_field} -> {rule.target_field}')
+        self.code_lines.append(f'{indent}# Rule: {rule.source_field} -> {rule.target_field}')
         
+        # In nested blocks, we might want to skip the 'if' if it was already handled by block
         if rule.condition:
-            self.code_lines.append(f'    if {self._translate_condition(rule.condition)}:')
+            self.code_lines.append(f'{indent}if {self._translate_condition(rule.condition)}:')
+            indent += "    "
         
         # Build transform chain
         value_expr = source_var
@@ -654,9 +864,10 @@ class CodeGenerator:
         
         # Handle default value
         if rule.default_value is not None:
-            self.code_lines.append(f'    target_item["{rule.target_field}"] = {value_expr} if {source_var} else "{rule.default_value}"')
+            check_var = "True" if is_literal else source_var
+            self.code_lines.append(f'{indent}target_item["{rule.target_field}"] = {value_expr} if {check_var} else {repr(rule.default_value)}')
         else:
-            self.code_lines.append(f'    target_item["{rule.target_field}"] = {value_expr}')
+            self.code_lines.append(f'{indent}target_item["{rule.target_field}"] = {value_expr}')
         
         self.code_lines.append('')
     
