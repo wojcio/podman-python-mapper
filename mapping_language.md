@@ -120,6 +120,11 @@ map null -> target_field
     DEFAULT value
 ```
 
+#### Hierarchical Output
+```
+map source_field -> parent/child/target_field
+```
+
 ### Functions
 
 #### String Functions
@@ -408,6 +413,18 @@ AGGREGATE {
         map source_field -> target_field TRANSFORM aggregation_function(source_field)
     }
 }
+```
+
+### Record Selection
+Filter input records *before* mapping rules are applied.
+```dml
+SELECT condition
+```
+
+### Output Filtering
+Filter output records *after* mapping rules are applied.
+```dml
+FILTER condition
 ```
 
 ### Data Cleansing

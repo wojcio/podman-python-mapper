@@ -67,6 +67,13 @@ Optional modifiers:
 - `IF condition` - Conditional mapping for a single rule
 - `DEFAULT value` - Default value if source field is missing or null
 
+#### Hierarchical Output
+Map to nested structures using slash-separated paths:
+```dml
+map id -> Record/Header/ID
+map name -> Record/Details/Name
+```
+
 ### Control Flow Blocks
 
 You can group multiple rules under control flow constructs:
@@ -164,6 +171,18 @@ LOOP items AS line_item INDEX idx {
 ### Data Quality and Validation
 
 Maintain high data quality with built-in cleansing and validation:
+
+#### Record Selection (SELECT)
+Filter input records *before* mapping:
+```dml
+SELECT amount > 0
+```
+
+#### Output Filtering (FILTER)
+Filter output records *after* mapping rules are applied:
+```dml
+FILTER Record/Status == "Active"
+```
 
 #### Data Cleansing
 Automatically normalize data before mapping:
