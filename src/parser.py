@@ -11,14 +11,22 @@ from typing import Optional, List, Dict, Any, Union
 @dataclass
 class SourceConfig:
     """Configuration for data source."""
-    type: str  # XML, CSV, DB, EDI
+    type: str  # XML, CSV, DB, EDI, JSON
+    alias: Optional[str] = None
     config: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TargetConfig:
     """Configuration for data target."""
-    type: str  # XML, CSV, DB, EDI
+    type: str  # XML, CSV, DB, EDI, JSON
+    config: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ComponentConfig:
+    """Configuration for intermediate component."""
+    type: str  # DB
     config: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -37,8 +45,9 @@ class MappingRule:
 class Mapping:
     """Complete mapping definition."""
     name: str
-    source: SourceConfig
-    target: TargetConfig
+    sources: List[SourceConfig] = field(default_factory=list)
+    target: Optional[TargetConfig] = None
+    component: Optional[ComponentConfig] = None
     rules: List[MappingRule] = field(default_factory=list)
 
 
@@ -46,25 +55,30 @@ class Tokenizer:
     """Tokenizes the mapping language input."""
     
     TOKENS = [
-        ('MAPPING', r'MAPPING'),
-        ('SOURCE', r'SOURCE'),
-        ('TARGET', r'TARGET'),
-        ('RULES', r'RULES'),
-        ('XML', r'XML'),
-        ('CSV', r'CSV'),
-        ('DB', r'DB'),
-        ('EDI', r'EDI'),
-        ('IF', r'IF'),
-        ('ELSE', r'ELSE'),
-        ('TRANSFORM', r'TRANSFORM'),
-        ('DEFAULT', r'DEFAULT'),
-        ('AS', r'AS'),
-        ('MAP', r'map'),
-        ('LOOP', r'loop'),
-        ('AGGREGATE', r'AGGREGATE'),
-        ('FUNCTION', r'FUNCTION'),
-        ('WHEN', r'WHEN'),
-        ('THEN', r'THEN'),
+        ('WS', r'\s+'),
+        ('BLOCK_COMMENT', r'/\*[\s\S]*?\*/'),
+        ('COMMENT', r'#.*$'),
+        ('MAPPING', r'[Mm][Aa][Pp][Pp][Ii][Nn][Gg]\b'),
+        ('SOURCE', r'[Ss][Oo][Uu][Rr][Cc][Ee]\b'),
+        ('TARGET', r'[Tt][Aa][Rr][Gg][Ee][Tt]\b'),
+        ('RULES', r'[Rr][Uu][Ll][Ee][Ss]\b'),
+        ('XML', r'[Xx][Mm][Ll]\b'),
+        ('CSV', r'[Cc][Ss][Vv]\b'),
+        ('DB', r'[Dd][Bb]\b'),
+        ('EDI', r'[Ee][Dd][Ii]\b'),
+        ('JSON', r'[Jj][Ss][Oo][Nn]\b'),
+        ('COMPONENT', r'[Cc][Oo][Mm][Pp][Oo][Nn][Ee][Nn][Tt]\b'),
+        ('IF', r'[Ii][Ff]'),
+        ('ELSE', r'[Ee][Ll][Ss][Ee]'),
+        ('TRANSFORM', r'[Tt][Rr][Aa][Nn][Ss][Ff][Oo][Rr][Mm]'),
+        ('DEFAULT', r'[Dd][Ee][Ff][Aa][Uu][Ll][Tt]'),
+        ('AS', r'[Aa][Ss]\b'),
+        ('MAP', r'[Mm][Aa][Pp]\b'),
+        ('LOOP', r'[Ll][Oo][Oo][Pp]'),
+        ('AGGREGATE', r'[Aa][Gg][Gg][Rr][Ee][Gg][Aa][Tt][Ee]'),
+        ('FUNCTION', r'[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn]'),
+        ('WHEN', r'[Ww][Hh][Ee][Nn]'),
+        ('THEN', r'[Tt][Hh][Ee][Nn]'),
         ('LBRACE', r'\{'),
         ('RBRACE', r'\}'),
         ('LPAREN', r'\('),
@@ -86,10 +100,8 @@ class Tokenizer:
         ('SLASH', r'/'),
         ('NUMBER', r'-?\d+(\.\d+)?'),
         ('STRING', r'"[^"]*"|\'[^\']*\''),
+        ('SLASHPATH', r'[a-zA-Z0-9_/-]+/[a-zA-Z0-9_/]*'),
         ('IDENT', r'[a-zA-Z_][a-zA-Z0-9_]*'),
-        ('SLASHPATH', r'[a-zA-Z_/]+/[a-zA-Z0-9_/.]*'),
-        ('WS', r'\s+'),
-        ('COMMENT', r'#.*$'),
     ]
     
     def __init__(self, text: str):
@@ -106,7 +118,7 @@ class Tokenizer:
                 match = regex.match(self.text, pos)
                 if match:
                     value = match.group(0)
-                    if token_type not in ('WS', 'COMMENT'):
+                    if token_type not in ('WS', 'COMMENT', 'BLOCK_COMMENT'):
                         self.tokens.append((token_type, value))
                     pos = match.end()
                     break
@@ -177,17 +189,23 @@ class Parser:
         self.skip_whitespace()
         self.expect('LBRACE')
         
-        source = None
+        sources = []
         target = None
+        component = None
         rules = []
         
         while self.current_token() and self.current_token()[0] != 'RBRACE':
             self.skip_whitespace()
             
             if self.match('SOURCE'):
-                source = self.parse_source_target()
+                res = self.parse_source_target()
+                sources.append(SourceConfig(type=res['type'], alias=res['alias'], config=res['config']))
             elif self.match('TARGET'):
-                target = self.parse_source_target()
+                res = self.parse_source_target()
+                target = TargetConfig(type=res['type'], config=res['config'])
+            elif self.match('COMPONENT'):
+                res = self.parse_source_target()
+                component = ComponentConfig(type=res['type'], config=res['config'])
             elif self.match('RULES'):
                 rules = self.parse_rules()
             else:
@@ -197,22 +215,44 @@ class Parser:
         
         return Mapping(
             name=name,
-            source=source or SourceConfig(type='CSV', config={}),
+            sources=sources if sources else [SourceConfig(type='CSV', config={})],
             target=target or TargetConfig(type='CSV', config={}),
+            component=component,
             rules=rules
         )
     
-    def parse_source_target(self) -> Union[SourceConfig, TargetConfig]:
-        """Parse SOURCE or TARGET configuration."""
-        config_type = self.expect('IDENT')[1].upper()
+    def parse_source_target(self) -> Union[SourceConfig, TargetConfig, ComponentConfig]:
+        """Parse SOURCE, TARGET, or COMPONENT configuration."""
+        type_token = self.current_token()
+        if not type_token:
+            raise SyntaxError("Expected configuration type (XML, CSV, DB, EDI, JSON)")
+            
+        if type_token[0] in ('XML', 'CSV', 'DB', 'EDI', 'JSON', 'IDENT'):
+            config_type = type_token[1].upper()
+            self.advance()
+        else:
+            raise SyntaxError(f"Unexpected token for configuration type: {type_token}")
         
         self.skip_whitespace()
+        
+        alias = None
+        if self.match('AS'):
+            self.skip_whitespace()
+            alias = self.expect('IDENT')[1]
+            self.skip_whitespace()
+            
         self.expect('LBRACE')
         
         config = {}
         
         while self.current_token() and self.current_token()[0] != 'RBRACE':
-            key = self.expect('IDENT')[1]
+            self.skip_whitespace()
+            key_token = self.advance()
+            if not key_token or key_token[0] not in ('IDENT', 'TYPE', 'QUERY'): # Allow some keywords as keys
+                key = key_token[1]
+            else:
+                key = key_token[1]
+                
             self.skip_whitespace()
             self.expect('COLON')
             self.skip_whitespace()
@@ -225,10 +265,14 @@ class Parser:
         
         self.expect('RBRACE')
         
-        if config_type == 'SOURCE':
-            return SourceConfig(type=config.get('type', 'CSV'), config=config)
-        else:
-            return TargetConfig(type=config.get('type', 'CSV'), config=config)
+        # We don't know if it was SOURCE, TARGET or COMPONENT from inside this method 
+        # unless we pass it in, but we can infer or let the caller wrap it.
+        # Actually, let's just return the components and let the caller wrap them.
+        return {
+            'type': config_type,
+            'alias': alias,
+            'config': config
+        } # Changed return type to Dict temporarily to make it easier for the caller
     
     def parse_value(self) -> Any:
         """Parse a value (string, number, or identifier)."""
@@ -248,6 +292,9 @@ class Parser:
         elif token[0] == 'IDENT':
             self.advance()
             return token[1]
+        elif token[0] == 'SLASHPATH':
+            self.advance()
+            return token[1]
         
         return None
     
@@ -263,6 +310,8 @@ class Parser:
             rule = self.parse_rule()
             if rule:
                 rules.append(rule)
+            else:
+                raise SyntaxError(f"Unexpected token in rules: {self.current_token()}")
         
         self.expect('RBRACE')
         return rules
@@ -282,7 +331,7 @@ class Parser:
             self.skip_whitespace()
             token = self.current_token()
             
-            if token and token[0] in ('STRING', 'IDENT'):
+            if token and token[0] in ('STRING', 'IDENT', 'SLASHPATH'):
                 source_fields.append(self.parse_value())
             elif token and token[0] == 'NULL':
                 self.advance()
@@ -303,7 +352,7 @@ class Parser:
         # Parse target field
         target_field = None
         token = self.current_token()
-        if token and token[0] in ('STRING', 'IDENT'):
+        if token and token[0] in ('STRING', 'IDENT', 'SLASHPATH'):
             target_field = self.parse_value()
         
         transform = None
@@ -422,16 +471,19 @@ class CodeGenerator:
         self.imports.add('import csv')
         self.imports.add('import json')
         
-        if self.mapping.source.type == 'XML' or self.mapping.target.type == 'XML':
+        main_source = self.mapping.sources[0] if self.mapping.sources else None
+        main_target = self.mapping.target
+        
+        if (main_source and main_source.type == 'XML') or (main_target and main_target.type == 'XML'):
             self.imports.add('import xml.etree.ElementTree as ET')
         
-        if self.mapping.source.type == 'DB' or self.mapping.target.type == 'DB':
+        if (main_source and main_source.type == 'DB') or (main_target and main_target.type == 'DB'):
             self.imports.add('import sqlite3')
         
-        if self.mapping.source.type == 'EDI' or self.mapping.target.type == 'EDI':
+        if (main_source and main_source.type == 'EDI') or (main_target and main_target.type == 'EDI'):
             self.imports.add('import re')
         
-        self.code_lines.extend(self.imports)
+        self.code_lines.extend(sorted(list(self.imports)))
         self.code_lines.append('')
         self.code_lines.append(f'# Data Mapping: {self.mapping.name}')
         self.code_lines.append('')
@@ -509,7 +561,8 @@ class CodeGenerator:
         self.code_lines.append('    """Execute the mapping and write to output."""')
         
         # Source handling
-        source_type = self.mapping.source.type.upper()
+        main_source = self.mapping.sources[0] if self.mapping.sources else SourceConfig(type='CSV')
+        source_type = main_source.type.upper()
         if source_type == 'XML':
             self.code_lines.append('    # Read XML source')
             self.code_lines.append('    tree = ET.parse(input_data)')
@@ -548,7 +601,8 @@ class CodeGenerator:
             self._generate_rule_code(rule)
         
         # Target handling
-        target_type = self.mapping.target.type.upper()
+        main_target = self.mapping.target or TargetConfig(type='CSV')
+        target_type = main_target.type.upper()
         if target_type == 'XML':
             self.code_lines.append('')
             self.code_lines.append('    # Write XML output')
