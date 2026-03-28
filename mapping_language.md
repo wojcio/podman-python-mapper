@@ -392,6 +392,28 @@ AGGREGATE {
 }
 ```
 
+### Data Cleansing
+Automatically normalize input data fields.
+```dml
+CLEANSE {
+    TRIM true | false,
+    CASE "UPPER" | "LOWER"
+}
+```
+
+### Data Validation
+Filter records based on format or conditions.
+```dml
+VALIDATE field FORMAT "regex" [MESSAGE "error message"]
+VALIDATE field condition [MESSAGE "error message"]
+```
+
+### Duplicate Detection
+Ensure only unique records are processed.
+```dml
+DISTINCT
+```
+
 ## Comments
 ```
 # Single line comment

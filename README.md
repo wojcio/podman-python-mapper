@@ -107,6 +107,32 @@ SWITCH category {
 }
 ```
 
+### Data Quality and Validation
+
+Maintain high data quality with built-in cleansing and validation:
+
+#### Data Cleansing
+Automatically normalize data before mapping:
+```dml
+CLEANSE {
+    TRIM true,
+    CASE "UPPER"  # or "LOWER"
+}
+```
+
+#### Data Validation
+Filter out invalid records:
+```dml
+VALIDATE email FORMAT "^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$" MESSAGE "Invalid email format"
+VALIDATE amount amount > 0 MESSAGE "Amount must be positive"
+```
+
+#### Duplicate Detection
+Ensure output contains only unique records:
+```dml
+DISTINCT
+```
+
 ### Data Aggregation
 
 You can group records and calculate summary values:
