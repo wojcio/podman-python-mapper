@@ -316,6 +316,11 @@ MAPPING csv_to_edi {
 - `write_file(path)` - Write current value to file
 - `append_file(path)` - Append current value to file
 
+#### External References
+- `lookup(key, table_path, key_col, val_col)` - Lookup value in external CSV/JSON
+- `api_get(url, params_json)` - Fetch data from an external API
+- `env(var_name, default)` - Access environment variables
+
 ### Python API
 
 ```python

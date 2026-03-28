@@ -167,6 +167,11 @@ map null -> target_field
 - `write_file(value, path)` - Write value to a file
 - `append_file(value, path)` - Append value to an existing file
 
+#### External References
+- `lookup(key, table_path, key_col, val_col)` - Lookup a value in an external CSV or JSON file.
+- `api_get(url, params_json)` - Fetch data from an external REST API (GET).
+- `env(var_name, default)` - Access system environment variables.
+
 #### Aggregation Functions (use in AGGREGATE block)
 - `sum(field)` - Sum of field values in group
 - `count(field)` - Number of records in group

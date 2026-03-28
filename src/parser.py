@@ -698,6 +698,8 @@ class CodeGenerator:
         """Generate imports and header."""
         self.imports.add('import csv')
         self.imports.add('import json')
+        self.imports.add('import os')
+        self.imports.add('import requests')
         main_source = self.mapping.sources[0] if self.mapping.sources else None
         main_target = self.mapping.target
         if (main_source and main_source.type == 'XML') or (main_target and main_target.type == 'XML'):
@@ -717,7 +719,7 @@ class CodeGenerator:
         """Generate helper functions."""
         self.code_lines.append('def transform_value(value, func_name, *args, row_num=0, rank_val=0):')
         self.code_lines.append('    """Apply transformation function to value."""')
-        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce", "row_number", "rank", "read_file"):')
+        self.code_lines.append('    if value is None and func_name not in ("now", "today", "coalesce", "row_number", "rank", "read_file", "env", "api_get"):')
         self.code_lines.append('        return None')
         self.code_lines.append('')
         self.code_lines.append('    try:')
@@ -753,6 +755,9 @@ class CodeGenerator:
             'read_file': 'with open(args[0], "r") as f: return f.read()',
             'write_file': 'with open(args[0], "w") as f: f.write(str(value)); return value',
             'append_file': 'with open(args[0], "a") as f: f.write(str(value)); return value',
+            'lookup': 'return lookup_func(value, *args)',
+            'api_get': 'return requests.get(args[0], params=json.loads(args[1]) if len(args)>1 else {}).json()',
+            'env': 'return os.environ.get(str(args[0]), args[1] if len(args)>1 else None)',
         }
         for func, code in transforms.items():
             self.code_lines.append(f'    if func_name == "{func}":')
@@ -806,6 +811,23 @@ class CodeGenerator:
         self.code_lines.append('        elif fmt == "999999.99": return f"{num:08.2f}"')
         self.code_lines.append('    except: pass')
         self.code_lines.append('    return value')
+        self.code_lines.append('')
+        self.code_lines.append('def lookup_func(key, table_path, key_col, val_col):')
+        self.code_lines.append('    """Lookup value in external CSV or JSON file."""')
+        self.code_lines.append('    import csv, json')
+        self.code_lines.append('    if table_path.endswith(".csv"):')
+        self.code_lines.append('        with open(table_path, "r") as f:')
+        self.code_lines.append('            reader = csv.DictReader(f)')
+        self.code_lines.append('            for row in reader:')
+        self.code_lines.append('                if str(row.get(key_col)) == str(key): return row.get(val_col)')
+        self.code_lines.append('    elif table_path.endswith(".json"):')
+        self.code_lines.append('        with open(table_path, "r") as f:')
+        self.code_lines.append('            data = json.load(f)')
+        self.code_lines.append('            if isinstance(data, list):')
+        self.code_lines.append('                for row in data:')
+        self.code_lines.append('                    if str(row.get(key_col)) == str(key): return row.get(val_col)')
+        self.code_lines.append('            elif isinstance(data, dict): return data.get(str(key))')
+        self.code_lines.append('    return None')
         self.code_lines.append('')
     
     def _generate_main(self):
