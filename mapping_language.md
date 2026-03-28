@@ -318,20 +318,38 @@ loop source_collection {
 ```
 
 ### Conditional Blocks
-```
+```dml
 IF condition {
     map field1 -> target1
     map field2 -> target2
-} ELSE {
+} [ELSE {
     map field3 -> target3
+}]
+```
+
+### Error Handling
+```dml
+TRY {
+    # Rules that might fail (e.g., type casting)
+    map amount -> Amount AS integer
+} CATCH [AS error_var] {
+    # Recovery rules
+    map "0" -> Amount
 }
 ```
 
-### Aggregations
-```
-AGGREGATE {
-    source_field AS target_field
-    FUNCTION sum | avg | count | min | max
+### Multi-condition Dispatch
+```dml
+SWITCH source_field {
+    CASE "value1": {
+        map field1 -> target1
+    }
+    CASE "value2": {
+        map field2 -> target2
+    }
+    DEFAULT: {
+        map field3 -> target3
+    }
 }
 ```
 

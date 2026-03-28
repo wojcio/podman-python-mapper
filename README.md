@@ -64,7 +64,48 @@ map CustomerID -> RecordCustomerID
 Optional modifiers:
 - `TRANSFORM function()` - Apply a transformation (upper, lower, trim, int, float)
 - `AS type` - Cast to a specific type
-- `IF condition` - Conditional mapping
+- `IF condition` - Conditional mapping for a single rule
+- `DEFAULT value` - Default value if source field is missing or null
+
+### Control Flow Blocks
+
+You can group multiple rules under control flow constructs:
+
+#### Conditional Blocks (IF/ELSE)
+```dml
+IF amount > 1000 {
+    map status -> Record/Status DEFAULT "Premium"
+    map "High Value" -> Record/Priority
+} ELSE {
+    map status -> Record/Status DEFAULT "Standard"
+    map "Normal" -> Record/Priority
+}
+```
+
+#### Error Handling (TRY/CATCH)
+```dml
+TRY {
+    map price -> Record/Price AS decimal
+} CATCH AS err {
+    map "0.0" -> Record/Price
+    # err variable available in catch block for custom logic
+}
+```
+
+#### Multi-condition Dispatch (SWITCH/CASE)
+```dml
+SWITCH category {
+    CASE "electronics": {
+        map id -> Item/E_ID
+    }
+    CASE "books": {
+        map id -> Item/B_ID
+    }
+    DEFAULT: {
+        map id -> Item/GEN_ID
+    }
+}
+```
 
 ## Examples
 
