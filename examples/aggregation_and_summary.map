@@ -1,0 +1,27 @@
+MAPPING sales_summary {
+    SOURCE CSV { file: "sales_data.csv" }
+    TARGET CSV { file: "summary_report.csv" }
+
+    # Group records and calculate aggregates
+    AGGREGATE {
+        GROUP BY region, category
+        
+        RULES {
+            # Window functions in the main loop can be used before aggregation
+            # But here we focus on summary functions
+            map amount -> TotalRevenue TRANSFORM sum(amount)
+            map amount -> AverageOrder TRANSFORM avg(amount)
+            map id -> TransactionCount TRANSFORM count(id)
+            map amount -> HighestSale TRANSFORM max(amount)
+            map amount -> LowestSale TRANSFORM min(amount)
+        }
+    }
+
+    RULES {
+        # These rules apply to each record *before* aggregation
+        map region -> region
+        map category -> category
+        map amount -> amount AS decimal
+        map transaction_id -> id
+    }
+}

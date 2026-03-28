@@ -1,0 +1,26 @@
+MAPPING external_enrichment {
+    SOURCE CSV { file: "orders.csv" }
+    TARGET JSON { file: "enriched_orders.json" }
+
+    RULES {
+        map order_id -> id
+        
+        # 1. Environment Variable for deployment stage
+        map env("ENV_STAGE", "production") -> metadata/environment
+        
+        # 2. External Table Lookup
+        # lookup(key, file_path, key_column, value_column)
+        map customer_id -> CustomerName TRANSFORM lookup("customers.csv", "id", "name")
+        
+        # 3. API Enrichment (requires 'requests' in generated code)
+        # api_get(url, params_json)
+        map sku -> ProductDetails TRANSFORM api_get("https://api.inventory.com/products")
+        
+        # 4. File Operation: Read content
+        map template_id -> EmailBody TRANSFORM read_file("templates/welcome.txt")
+        
+        # 5. Window Functions
+        map null -> record_rank TRANSFORM rank()
+        map null -> seq_id TRANSFORM row_number()
+    }
+}

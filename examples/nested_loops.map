@@ -1,0 +1,35 @@
+MAPPING nested_iterator {
+    SOURCE JSON { file: "warehouse.json" }
+    TARGET XML { file: "inventory.xml" }
+
+    RULES {
+        map warehouse_name -> WarehouseName
+        
+        # Outer Loop: Iterate through categories
+        LOOP categories AS cat INDEX cat_idx {
+            
+            # Inner Loop: Iterate through items in each category
+            LOOP cat/items AS product INDEX item_idx {
+                
+                # Use aliases to access data
+                map cat/name -> Inventory/Product/Category
+                map product/name -> Inventory/Product/Name
+                map product/stock -> Inventory/Product/Quantity
+                
+                # Use loop index
+                IF item_idx == 0 {
+                    map "YES" -> Inventory/Product/IsFirstInCategory
+                }
+                
+                # Loop control
+                IF product/discontinued == true {
+                    CONTINUE
+                }
+                
+                IF cat_idx > 5 {
+                    BREAK
+                }
+            }
+        }
+    }
+}

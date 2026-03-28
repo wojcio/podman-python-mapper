@@ -1,0 +1,65 @@
+MAPPING advanced_features {
+    SOURCE CSV { file: "input.csv", has_header: true }
+    TARGET JSON { file: "output.json" }
+
+    # Input Selection: Only process records with positive amounts
+    SELECT amount > 0
+
+    # Data Cleansing
+    CLEANSE {
+        TRIM true,
+        CASE "UPPER"
+    }
+
+    # Global Constants and Variables
+    CONST VERSION = "2.0"
+    VAR default_status = "PENDING"
+
+    # Reusable Macro
+    MACRO format_money(src, tgt) {
+        map src -> tgt TRANSFORM format_number("#,##0.00")
+    }
+
+    RULES {
+        # Metadata
+        map VERSION -> Header/Version
+        map now() -> Header/ProcessedAt TRANSFORM format_date("YYYY-MM-DD HH:mm:ss")
+        
+        # User Info using OBJECT block
+        OBJECT User/Profile {
+            map first_name, last_name -> FullName TRANSFORM concat(" ")
+            map email -> Email TRANSFORM lower()
+        }
+
+        # Control Flow: IF/ELSE
+        IF amount > 1000 {
+            map "Premium" -> User/Status
+        } ELSE {
+            map default_status -> User/Status
+        }
+
+        # Error Handling: TRY/CATCH
+        TRY {
+            map raw_price -> Price AS decimal
+        } CATCH AS err {
+            map "0.0" -> Price
+            map err -> Metadata/ParseError
+        }
+
+        # Multi-condition Dispatch: SWITCH
+        SWITCH category {
+            CASE "E": { map "Electronics" -> CategoryName }
+            CASE "B": { map "Books" -> CategoryName }
+            DEFAULT: { map "Other" -> CategoryName }
+        }
+
+        # Dynamic Field Name
+        map tag_value -> (tag_name)
+
+        # Macro usage
+        format_money(amount, Payment/Amount)
+    }
+
+    # Output Filtering: Only keep Premium or active users
+    FILTER User/Status == "Premium" OR status == "ACTIVE"
+}
