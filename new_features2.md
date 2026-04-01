@@ -243,6 +243,204 @@ This document provides a comprehensive analysis of the current Data Mapping Lang
 16. **Testing Framework** - Gemini: **TODO**
 17. **Nested Object Mapping** - Gemini: **DONE**
 
+## QWEN: What I Would Add
+
+### Critical Gaps
+1. **API POST Support** - `api_post(url, body_json)` is marked TODO but is essential for REST API integration completeness
+2. **Testing Framework** - Need unit tests for the mapper, not just syntax validation
+
+### High Priority Enhancements
+3. **Mapping Documentation Generation** - Auto-generate human-readable documentation from mapping files (field mappings, transforms, business rules)
+4. **Mapping Visualization** - Visual representation of data flow (source → transform → target) for debugging and onboarding
+5. **Performance Metrics** - Track execution time, record counts, transformation stats per mapping
+
+---
+
+## QWEN: GUI Tool Like MapForce - Is It a Big Challenge?
+
+### Short Answer: **Yes, it's a significant challenge** - but the complexity depends on scope.
+
+### Why It's Challenging
+
+| Challenge Area | Complexity | Notes |
+|----------------|------------|-------|
+| **Drag-and-Drop Canvas** | High | Requires a mature UI framework (React, Electron, Qt) with custom canvas implementation |
+| **Real-time Validation** | Medium-High | Need to parse DSL and validate against schema in real-time |
+| **Schema Discovery** | Medium | Must introspect CSV/JSON/XML/DB sources to extract schemas |
+| **Connection Logic** | High | Complex state management for source→target mappings with transforms |
+| **Code Generation Sync** | Medium | Two-way sync between visual canvas and DSL text |
+| **Cross-platform** | Medium | Electron helps, but testing on macOS/Windows/Linux adds complexity |
+
+### What Would Be Needed
+
+#### Phase 1: MVP (3-6 months)
+- Basic canvas with source/target nodes
+- Drag fields from source to target
+- Simple transform selection (dropdown)
+- Live DSL preview panel
+- Export to `.map` file
+
+#### Phase 2: Advanced Features (3-6 months)
+- Nested object mapping
+- Loop/conditional visual blocks
+- Schema comparison (source vs target differences)
+- Data preview panel (sample data)
+- Error highlighting
+
+#### Phase 3: Enterprise Features (3+ months)
+- Team collaboration (shared mappings)
+- Version control integration
+- Performance profiling
+- Advanced debugging
+
+### Alternative: Lightweight Web-Based Tool
+
+Instead of full MapForce clone, consider:
+
+| Approach | Effort | Value |
+|----------|--------|-------|
+| **VS Code Extension** | Medium | Leverage existing editor, add visual preview panel |
+| **Simple Web App (React + Canvas)** | Medium-High | Easier deployment, good for prototyping |
+| **Desktop App (Tauri/Electron)** | High | Full control, but maintenance burden |
+
+### Recommendation
+
+**Don't build MapForce clone first.** Instead:
+
+1. **Start with VS Code extension** - Add visual preview for existing DSL
+2. **Add data preview panel** - Show sample input/output side-by-side
+3. **Incrementally add visual editing** - Only if users demand it
+
+The DSL is already powerful. Most users who need GUI tools are either:
+- Non-technical business users (they'll want drag-and-drop anyway)
+- Enterprise teams with budget for commercial tools (MapForce, Talend, etc.)
+
+### Cost-Benefit Analysis
+
+| Option | Development Time | Maintenance | User Value |
+|--------|------------------|-------------|------------|
+| Full GUI Tool | 6-12 months | High | Medium-High |
+| VS Code Extension | 1-3 months | Low-Medium | High (for developers) |
+| Documentation Generator | 2-4 weeks | Very Low | Medium |
+
+**Verdict**: GUI tool is a big challenge. Focus on core DSL features first, add lightweight visualization later.
+
+### QWEN: What I Would Add
+
+---
+
+## QWEN: Parser in Other Languages (C#, Java, etc.)
+
+### Short Answer: **Yes, it's feasible but requires effort** - the DSL is language-agnostic.
+
+### Why It's Possible
+
+| Factor | Assessment |
+|--------|------------|
+| **DSL Design** | Text-based, grammar-defined - easily portable |
+| **Current Implementation** | Python parser uses dataclasses - logic can be translated |
+| **Code Generation** | Generates Python code, but target language is configurable |
+
+### What Needs to Be Created
+
+#### 1. Parser (C# Example)
+```csharp
+// Need to recreate parser structure in C#
+public class MappingDefinition { }
+public class RuleBlock { }
+public class TransformFunction { }
+// ... all dataclasses from parser.py
+```
+
+#### 2. Code Generator (C# Example)
+```csharp
+// Generate C# code instead of Python
+public class CSharpCodeGenerator {
+    public string Generate(MappingDefinition mapping) { }
+}
+```
+
+### Language-Specific Considerations
+
+| Language | Parser Effort | Code Gen Effort | Notes |
+|----------|---------------|-----------------|-------|
+| **C#** | Medium-High | Medium | Strong typing helps, .NET has good text parsing libs |
+| **Java** | Medium-High | Medium | Similar to C#, mature ecosystem |
+| **JavaScript/TypeScript** | Low | Low | Same language family, easier translation |
+| **Go** | Medium | Low | Simple syntax, good for CLI tools |
+| **Rust** | High | Medium | Safety features add complexity but worth it |
+
+### Recommended Approach
+
+#### Option A: ANTLR Grammar (Best for Multi-Language)
+```
+1. Extract DSL grammar to ANTLR format
+2. Generate parsers for Python, C#, Java, JS automatically
+3. Write custom AST visitors per language for code generation
+
+Pros: Single source of truth, consistent parsing
+Cons: ANTLR learning curve, generated code is verbose
+```
+
+#### Option B: Manual Translation (Faster MVP)
+```
+1. Translate Python parser to target language
+2. Rewrite code generator for that language
+3. Maintain separately
+
+Pros: Full control, no tooling dependencies
+Cons: Drift between language versions over time
+```
+
+#### Option C: Shared Grammar + Runtime (Most Scalable)
+```
+1. Define DSL grammar in JSON/YAML
+2. Create lightweight parser runtime in each language
+3. Use shared code generation templates
+
+Pros: Easy to extend, maintainable
+Cons: Initial setup complexity
+```
+
+### Implementation Priority
+
+| Language | Priority | Reason |
+|----------|----------|--------|
+| **JavaScript/TypeScript** | High | VS Code extension, web-based tools |
+| **C#** | Medium | Enterprise Windows environments |
+| **Java** | Medium | Enterprise Linux/Unix environments |
+| **Go** | Low | CLI tools, cross-platform distribution |
+
+### Cost-Benefit Summary
+
+| Approach | Time to First Parser | Long-term Maintenance |
+|----------|---------------------|----------------------|
+| ANTLR Grammar | 1-2 weeks | Low |
+| Manual C# Translation | 3-5 days | High |
+| Manual Java Translation | 3-5 days | High |
+
+### Recommendation
+
+**For C#/Java support:**
+1. **Start with JavaScript/TypeScript** - Easiest, enables VS Code extension
+2. **Create ANTLR grammar** from current Python parser for long-term maintainability
+3. **Generate C# and Java parsers** from grammar when needed
+
+**Don't manually translate everything** - the grammar extraction upfront saves months of maintenance.
+
+### QWEN: What I Would Add
+
+### Medium Priority
+6. **Schema Evolution Support** - Handle source/target schema changes gracefully (add optional/required flags, default fallbacks)
+7. **Data Lineage Tracking** - Track which source fields map to which target fields for audit/compliance
+8. **Incremental Processing** - Support for processing only changed records (timestamp-based or hash-based)
+9. **Batch vs Stream Mode** - Configurable execution mode for large datasets
+
+### Low Priority / Nice to Have
+10. **Mapping Reusability** - Create reusable mapping components/templates that can be composed
+11. **Error Notification Hooks** - Callbacks/webhooks on mapping failures for monitoring
+12. **Version Control for Mappings** - Track mapping file versions and support rollback
+
 ## Conclusion
 
 The Data Mapping Language is now feature-rich and capable of handling complex enterprise data integration tasks. Most recommended enhancements have been implemented and verified.
