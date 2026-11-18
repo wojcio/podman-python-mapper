@@ -1,0 +1,17 @@
+MAPPING test_enrich {
+    SOURCE CSV AS main { file: "main.csv", has_header: true }
+    SOURCE CSV AS ref { file: "ref.csv", has_header: true }
+    
+    COMPONENT DB { 
+        schema: "id INTEGER, name TEXT, ref_id INTEGER",
+        query: "SELECT main.id, main.name, ref.status FROM main LEFT JOIN ref ON main.ref_id = ref.id"
+    }
+    
+    TARGET JSON { file: "output.json" }
+    
+    RULES {
+        map id -> target_id
+        map name -> target_name
+        map status -> target_status DEFAULT "unknown"
+    }
+}

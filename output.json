@@ -1,0 +1,17 @@
+[
+  {
+    "target_id": "1",
+    "target_name": "Alice",
+    "target_status": "active"
+  },
+  {
+    "target_id": "2",
+    "target_name": "Bob",
+    "target_status": "inactive"
+  },
+  {
+    "target_id": "3",
+    "target_name": "Charlie",
+    "target_status": "unknown"
+  }
+]
